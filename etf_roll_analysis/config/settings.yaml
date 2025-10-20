@@ -1,0 +1,51 @@
+products:
+  - HG
+
+bucket_config:
+  enabled: true
+  us_regular_hours:
+    start: 9
+    end: 15
+    granularity: "hourly"
+  off_peak_sessions:
+    late_us:
+      hours: [16, 17, 18, 19, 20]
+      bucket: 8
+      label: "Late US/After-Hours"
+    asia:
+      hours: [21, 22, 23, 0, 1, 2]
+      bucket: 9
+      label: "Asia Session"
+    europe:
+      hours: [3, 4, 5, 6, 7, 8]
+      bucket: 10
+      label: "Europe Session"
+
+data:
+  minute_root: "../organized_data/copper"  # Relative path - works on any machine
+  timezone: "US/Central"
+  price_field: "close"  # or "settle" if available
+
+data_quality:
+  filter_enabled: true          # Master switch for data filtering
+  cutoff_year: 2015             # Exclude contracts expiring before this year
+  min_data_points: 500          # Minimum required data points per contract (lowered from 1000)
+  max_gap_days: 30              # Maximum acceptable gap in trading days
+  min_coverage_percent: 25      # Minimum % of trading days with data (lowered from 30)
+  trim_early_sparse: true       # Remove early sparse data from good contracts
+  commodity: "HG"               # Currently filtering only HG contracts
+
+roll_rules:
+  fixed_days_before_expiry: 5
+  liquidity_threshold: 0.8
+  confirm_days: 1
+  use_open_interest: false
+
+spread:
+  method: "zscore"           # Detection method: "zscore", "abs", or "combined"
+  window_buckets: 20         # Rolling window in buckets (~2 days at 10 buckets/day)
+  z_threshold: 1.5           # Z-score threshold (1.5 gives ~5% detection rate)
+  abs_min: null              # Minimum absolute change (set to 0.020 to filter noise if needed)
+  cool_down_hours: 3.0       # Time-based cool-down between events (hours)
+
+output_dir: "outputs"
