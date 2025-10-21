@@ -3,23 +3,22 @@ Tests for bucket aggregation module
 """
 
 import sys
-import os
+from pathlib import Path
 import pytest
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 
-# Add parent directory to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Ensure src directory is on the path for local test execution
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 # Import from the project
-from etf_roll_analysis.src.roll_analysis.bucket import (
+from futures_roll_analysis.buckets import (
     assign_bucket,
     get_bucket_info,
     aggregate_to_buckets,
     validate_bucket_aggregation,
     calculate_bucket_statistics,
-    BUCKET_DEFINITIONS
 )
 
 

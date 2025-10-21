@@ -3,16 +3,16 @@ Tests for event detection module
 """
 
 import sys
-import os
+from pathlib import Path
 import pytest
 import pandas as pd
 import numpy as np
 
-# Add parent directory to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Ensure src directory is importable for local execution
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 # Import from the project
-from etf_roll_analysis.src.roll_analysis.events import detect_widening
+from futures_roll_analysis.events import detect_spread_events
 
 
 class TestEventDetection:
@@ -29,7 +29,7 @@ class TestEventDetection:
         spread.iloc[50] = spread.iloc[49] + 0.1  # Large positive change
         
         # Detect events
-        events = detect_widening(spread, method='zscore', window=20, z_threshold=1.5)
+        events = detect_spread_events(spread, method='zscore', window=20, z_threshold=1.5)
         
         # Should detect at least one event
         assert events.sum() >= 1, "Should detect at least one widening event"
@@ -44,7 +44,7 @@ class TestEventDetection:
         spread = pd.Series(0.05, index=dates)  # Constant spread
         
         # Detect events
-        events = detect_widening(spread, method='zscore', window=20, z_threshold=1.5)
+        events = detect_spread_events(spread, method='zscore', window=20, z_threshold=1.5)
         
         # Should detect no events in flat data
         assert events.sum() == 0, "Should detect no events in flat spread data"
@@ -57,7 +57,7 @@ class TestEventDetection:
         spread.iloc[10:15] = np.nan  # Add some NaN values
         
         # Detect events - should not crash
-        events = detect_widening(spread, method='zscore', window=20, z_threshold=1.5)
+        events = detect_spread_events(spread, method='zscore', window=20, z_threshold=1.5)
         
         # Should return a series of same length
         assert len(events) == len(spread), "Output should have same length as input"
@@ -74,8 +74,7 @@ class TestEventDetection:
         spread.iloc[51] = spread.iloc[50] + 0.1  # Another large change
         
         # Detect events with cool-down
-        events = detect_widening(spread, method='zscore', window=20, 
-                                z_threshold=1.5, cool_down=3)
+        events = detect_spread_events(spread, method='zscore', window=20, z_threshold=1.5, cool_down=3)
         
         # Should not detect both consecutive events due to cool-down
         consecutive_events = events.iloc[50] and events.iloc[51]
@@ -89,8 +88,8 @@ class TestEventDetection:
         spread = pd.Series(np.random.randn(200) * 0.02, index=dates)
         
         # Detect with different thresholds
-        events_high = detect_widening(spread, method='zscore', window=20, z_threshold=2.0)
-        events_low = detect_widening(spread, method='zscore', window=20, z_threshold=1.0)
+        events_high = detect_spread_events(spread, method='zscore', window=20, z_threshold=2.0)
+        events_low = detect_spread_events(spread, method='zscore', window=20, z_threshold=1.0)
         
         # Lower threshold should detect more events
         assert events_low.sum() >= events_high.sum(), "Lower threshold should detect more events"

@@ -48,7 +48,7 @@ organized_data/
 !etf_roll_analysis/metadata/*.csv
 
 # Output files
-etf_roll_analysis/outputs/
+outputs/
 *.log
 *.out
 *.txt

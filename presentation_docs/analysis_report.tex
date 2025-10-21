@@ -1,1108 +1,224 @@
 \documentclass[12pt,a4paper]{article}
 
-% Packages
 \usepackage[margin=1in]{geometry}
 \usepackage{graphicx}
 \usepackage{amsmath}
 \usepackage{amssymb}
 \usepackage{booktabs}
 \usepackage{hyperref}
-\usepackage{listings}
 \usepackage{xcolor}
-\usepackage{algorithm2e}
 \usepackage{float}
 \usepackage{caption}
 \usepackage{subcaption}
-\usepackage{tcolorbox}
-\usepackage{menukeys}
-\usepackage{multirow}
+\usepackage{enumitem}
 
-% Code listing settings
-\lstset{
-    basicstyle=\ttfamily\small,
-    breaklines=true,
-    frame=single,
-    backgroundcolor=\color{gray!10},
-    commentstyle=\color{green!50!black},
-    keywordstyle=\color{blue},
-    stringstyle=\color{red}
-}
-
-% Hyperref setup
 \hypersetup{
     colorlinks=true,
     linkcolor=blue,
-    filecolor=magenta,      
-    urlcolor=cyan,
-    citecolor=blue
+    citecolor=blue,
+    urlcolor=blue
 }
 
-\title{\textbf{Detecting Roll Patterns in Copper Futures:\\ A Statistical Analysis of Calendar Spread Dynamics}}
-\author{Austin Li}
-\date{\today}
+\title{\textbf{Futures Roll Analysis Framework}\\Copper (HG) Case Study 2008--2024}
+\author{}
+\date{}
 
 \begin{document}
 
 \maketitle
 
 \begin{abstract}
-This report presents an \textbf{hourly intraday-period analysis} of roll patterns in CME copper (HG) futures (2008--2024). We aggregate 1-minute data into \textbf{10 intraday periods per trading day} in US/Central time (7 one-hour US regular periods from 09:00–15:59, plus Late US, Asia, and Europe multi-hour periods). We detect \textbf{2,736 roll events} across \textbf{44,428 intraday periods} (~6.2% detection rate). Detection is by z-score on consecutive intraday \emph{spread changes} (window=20 periods, threshold z>1.5 with positive change) with a \textbf{3-hour time-based cool-down}. Results summarize timing relative to official CME expiry dates and distribution across intraday periods.
+I present a unified Python framework for detecting institutional roll activity in futures markets. Minute-level CME copper (HG) contracts (2008--2024) are ingested, aggregated into variable-granularity buckets, and analysed using a vectorised calendar-spread detection engine. The refactored codebase introduces a conventional \texttt{src/} package layout, reusable services, and command-line entry points that reproduce key empirical findings: 2{,}736 hourly roll events (6.16\% hit-rate) with a median timing of 28 days before expiry, and 183 daily events after contract-quality filtering with a 14-day median lead.
 \end{abstract}
 
-\begin{tcolorbox}[colback=blue!5!white,colframe=blue!75!black,title=\textbf{For Framework Users}]
-\textbf{Unified CLI (daily/hourly) usage}\\[0.5em]
-\begin{enumerate}
-    \item Install dependencies: \texttt{pip install -r requirements.txt}
-    \item Hourly (intraday periods):\\
-    \texttt{python -m etf\_roll\_analysis.scripts.analyze --granularity hourly \\
-      --root ../organized\_data/copper --settings etf\_roll\_analysis/config/settings.yaml \\
-      --metadata etf\_roll\_analysis/metadata/contracts\_metadata.csv --output\_dir etf\_roll\_analysis/outputs}
-    \item Daily:\\
-    \texttt{python -m etf\_roll\_analysis.scripts.analyze --granularity daily \\
-      --root ../organized\_data/copper --settings etf\_roll\_analysis/config/settings.yaml \\
-      --metadata etf\_roll\_analysis/metadata/contracts\_metadata.csv --output\_dir etf\_roll\_analysis/outputs}
-\end{enumerate}
-Full details in \hyperref[sec:usage]{Section 7: Framework Usage and Extension Guide}.
-\end{tcolorbox}
 
-\tableofcontents
-\newpage
 
-\section{Introduction}
+\section{Framework Overview}
 
-\subsection{Background and Motivation}
-
-Futures contracts represent standardized agreements to buy or sell a specific quantity of a commodity at a predetermined price on a specified future date. Each contract has a defined expiration date, after which the contract must either be settled (physically or cash) or rolled into a subsequent contract month. For market participants maintaining continuous exposure---such as Exchange-Traded Funds (ETFs), commodity index funds, and hedge funds---the rolling process is essential for maintaining positions beyond individual contract lifespans.
-
-The timing of roll activity has significant implications for market microstructure, price discovery, and trading strategies. Understanding when institutional participants systematically shift from front-month to next-month contracts can provide insights into:
-
-\begin{itemize}
-    \item \textbf{Calendar spread dynamics}: Price relationships between adjacent contracts
-    \item \textbf{Roll costs}: The transaction costs and slippage associated with position transfers
-    \item \textbf{Market impact}: Price pressure created by large-scale rolling activity
-    \item \textbf{Trading opportunities}: Potential arbitrage or momentum strategies
+\subsection{Objectives}
+\begin{itemize}[noitemsep]
+    \item Provide a reproducible pipeline for futures roll-detection research.
+    \item Standardise data ingest, aggregation, panel assembly, and event detection across commodities.
+    \item Surface empirical roll statistics (timing, session distribution, liquidity confirmation).
 \end{itemize}
 
-\subsection{Research Objective}
+\subsection{Repository Layout}
+\begin{verbatim}
+src/futures_roll_analysis/
+  analysis.py        # hourly & daily orchestration services
+  buckets.py         # 10-session schema and aggregation helpers
+  ingest.py          # minute-file discovery and contract aggregation
+  panel.py           # wide panel assembly with expiry metadata
+  rolls.py           # vectorised front/next, spreads, liquidity signals
+  events.py          # spread-widening detection & summaries
+  quality.py         # data-quality filtering and reporting utilities
+  cli/               # command-line entry points (hourly, daily, organise)
+\end{verbatim}
 
-The primary objective of this analysis is to empirically determine \textit{when} market participants roll their copper futures positions relative to contract expiration. Specifically, we aim to:
+\paragraph{Configuration and metadata}
+\begin{itemize}[noitemsep]
+    \item \texttt{config/settings.yaml}: Source-of-truth for commodity root, timezone, bucket detection parameters, and quality thresholds.
+    \item \texttt{metadata/contracts\_metadata.csv}: Official CME expiry dates used for front/next identification.
+\end{itemize}
 
-\begin{enumerate}
-    \item Detect roll events using statistical analysis of calendar spreads
-    \item Quantify the temporal distribution of rolls relative to expiry dates
-    \item Characterize the heterogeneity of roll strategies in the market
-    \item Develop a replicable framework applicable to other commodity futures
-\end{enumerate}
+\paragraph{Outputs}
+\begin{itemize}[noitemsep]
+    \item \texttt{outputs/panels/}: Parquet \& CSV panels (hourly and filtered daily).
+    \item \texttt{outputs/roll\_signals/}: Spread, widening, and liquidity series.
+    \item \texttt{outputs/analysis/}: Summary tables (bucket distribution, preference scores, transition matrix, daily widening summary).
+    \item \texttt{outputs/data\_quality/}: Contract-level metrics and JSON summary produced during daily runs with filtering enabled.
+\end{itemize}
 
-\subsection{Dataset}
+\section{Data Preparation}
 
-Our analysis utilizes CME Group copper (ticker: HG) futures data with the following characteristics:
+\subsection{Source and Scope}
+\begin{itemize}[noitemsep]
+    \item Exchange: CME Group copper (HG) futures.
+    \item Horizon: January 2008–December 2024 (202 listed contracts).
+    \item Frequency: 1-minute OHLCV with optional open-interest fields.
+    \item Files: 13{,}548 source files spanning 32 commodities, organised into 32 folders via the CLI organiser.
+    \item Timezone: US/Central (Chicago).
+\end{itemize}
 
-\begin{table}[H]
-\centering
-\begin{tabular}{ll}
-\toprule
-\textbf{Parameter} & \textbf{Value} \\
-\midrule
-Commodity & Copper (HG) \\
-Contracts & 202 individual contracts \\
-Date Range & January 1, 2008 -- December 27, 2024 \\
-Trading Days & 6,206 \\
-Data Frequency & 1-minute bars \\
-Data Aggregation & 10 intraday periods per trading day (US/Central) \\
-Analysis Periods & 44,428 intraday periods \\
-Contract Months & H, J, K, M, N, Q, U, V, X, Z (all 12 months traded) \\
-Expiry Rule & Third last business day of contract month (CME) \\
-Total Files Processed & 13,548 futures files \\
-Organized Structure & 32 commodity folders in \texttt{organized\_data/} \\
-Data Inventory & \texttt{data\_inventory.csv} mapping all files \\
-\bottomrule
-\end{tabular}
-\caption{Dataset Characteristics}
-\end{table}
+\subsection{Organising Raw Data}
+Raw \texttt{*.txt} files are placed under asset-specific directories via:
+\begin{verbatim}
+python -m futures_roll_analysis.cli.organize \
+  --source /path/to/raw_txt \
+  --destination organized_data
+\end{verbatim}
+The organiser recognises contract symbols, creates commodity folders, and writes \texttt{data\_inventory.csv}.
 
+\subsection{Data Filtering}
+\begin{itemize}[noitemsep]
+    \item Contracts failing minimum density, coverage, or gap constraints are excluded.
+    \item Thresholds configurable in \texttt{settings.yaml} (default: 500 data points, coverage $\geq$25\%, max gap 30 days, cutoff year 2015).
+    \item Reports saved as CSV and JSON in \texttt{outputs/data\_quality}.
+\end{itemize}
 \section{Methodology}
 
-\subsection{Data Processing Pipeline}
-
-We aggregate 1-minute data to 10 intraday periods per trading day; identify front/next contracts using official CME expiry dates; compute calendar spreads as next minus front; detect widening via a z-score on consecutive intraday spread changes with a 20-period rolling window and a 3-hour time-based cool-down. Below is the high-level pipeline:
-
-\subsubsection{Stage 1: Data Organization}
-
-\textbf{Input}: 13,548 unorganized text files containing futures contract data across 32 commodity types.
-
-\textbf{Process}: Automated categorization based on contract symbol pattern matching. Each filename follows the convention \texttt{SYMBOL\_MONTHYEAR\_1min.txt}\\ (e.g., \texttt{HG\_Z24\_1min.txt}).
-
-\textbf{Output}: Hierarchical directory structure with 32 commodity-specific folders. For copper, 202 individual contract files organized in \texttt{organized\_data/copper/}.
-
-\subsubsection{Stage 2: Minute-to-Intraday-Period Aggregation}
-
-\textbf{Input}: 1-minute OHLCV data\; \textbf{Timezone}: US/Central (CME standard)
-
-\textbf{Aggregation}: 10 intraday periods per day with hourly precision during US regular hours (periods 1--7) and multi-hour periods for Late US, Asia, and Europe (periods 8--10); period start timestamps are used for grouping.
-
-\textbf{Output}: Intraday-period OHLCV per contract with period/session metadata.
-
-\subsubsection{Stage 3: Panel Data Assembly}
-
-\textbf{Objective}: Construct a wide-format panel where rows represent trading dates and columns represent individual contracts.
-
-\textbf{Structure}:
-\begin{itemize}
-    \item Dimensions: $6,206 \times 202$ (dates × contracts)
-    \item Each cell $(t, c)$ contains the closing price of contract $c$ on date $t$
-    \item Metadata row: Official CME expiry dates for each contract
-    \item Missing values (NaN) indicate contract not yet listed or already expired
-\end{itemize}
-
-\textbf{Expiry Data Source}: CME Group official futures calendar\footnote{\url{https://www.cmegroup.com/markets/metals/base/copper.calendar.html}}. All expiry dates calculated using CME rule: ``Third last business day of the contract month.''
-
-\subsection{Front and Next Contract Identification}
-
-For each trading date $t$, we identify the active contracts:
-
-\begin{algorithm}[H]
-\SetAlgoLined
-\KwIn{Panel data $P$, expiry dates $E$, current date $t$}
-\KwOut{Front contract $F_t$, Next contract $N_t$}
-$\text{Active} \gets \emptyset$\;
-\ForEach{contract $c$ in contracts}{
-    \If{$P[t, c]$ is not NaN \textbf{and} $E[c] \geq t$}{
-        Add $(c, E[c])$ to Active\;
-    }
-}
-Sort Active by expiry date (ascending)\;
-\eIf{$|\text{Active}| = 0$}{
-    $F_t \gets \text{NaN}$, $N_t \gets \text{NaN}$\;
-}{
-    \eIf{$|\text{Active}| = 1$}{
-        $F_t \gets \text{Active}[0]$, $N_t \gets \text{NaN}$\;
-    }{
-        $F_t \gets \text{Active}[0]$, $N_t \gets \text{Active}[1]$\;
-    }
-}
-\caption{Front and Next Contract Identification}
-\end{algorithm}
-
-\textbf{Coverage Results}:
-\begin{itemize}
-    \item Front contract identified: 5,284 days (85.1\%)
-    \item Next contract identified: 5,254 days (84.7\%)
-    \item Both front and next identified: 5,254 days (84.7\%)
-\end{itemize}
-
-The 15\% gap primarily occurs during early years (2008) when data coverage is incomplete.
-
-\subsection{Calendar Spread Calculation}
-
-The calendar spread $S_t$ at time $t$ is defined as:
-
-\begin{equation}
-S_t = P_{N_t}(t) - P_{F_t}(t)
-\end{equation}
-
-where $P_{N_t}(t)$ is the closing price of the next contract and $P_{F_t}(t)$ is the closing price of the front contract.
-
-\textbf{Interpretation}:
-\begin{itemize}
-    \item $S_t > 0$: Contango (next month premium)
-    \item $S_t < 0$: Backwardation (next month discount)
-    \item $\Delta S_t > 0$: Widening spread
-    \item $\Delta S_t < 0$: Narrowing spread
-\end{itemize}
-
-\textbf{Results}: 5,254 valid spread observations (84.7\% of trading days).
-
-\subsection{Roll Detection via Spread Widening}
-
-\subsubsection{Rationale}
-
-When institutional participants systematically roll positions (selling front month, buying next month), this creates:
-\begin{enumerate}
-    \item Downward pressure on front month prices
-    \item Upward pressure on next month prices
-    \item Net effect: Calendar spread widening
+\subsection{Minute Aggregation to Buckets}
+\begin{enumerate}[label=\arabic*., itemsep=3pt]
+    \item Localise/convert minute timestamps to US/Central.
+    \item Assign each minute to one of 10 sessions (7 one-hour US periods, plus Late US, Asia, Europe).
+    \item Anchor buckets by start timestamp (e.g., Asia session begins 21:00 of prior day).
+    \item Aggregate OHLCV per bucket (open=first, close=last, high=max, low=min, volume=sum).
 \end{enumerate}
+Vectorised helpers in \texttt{buckets.py} avoid per-row Python loops; validation utilities ensure volume/price conservation.
 
-\subsubsection{Statistical Framework}
+\subsection{Panel Assembly}
+\begin{itemize}[noitemsep]
+    \item Each contract receives a dedicated column block (open, high, low, close, volume, expiry metadata).
+    \item Metadata bucket columns are merged into a single \texttt{meta} namespace to avoid duplication.
+    \item Expiry dates are sourced from CME metadata and normalised to midnight.
+\end{itemize}
 
-We employ a z-score methodology to detect statistically significant spread changes:
+\subsection{Front/Next Identification and Spread Calculation}
+\begin{itemize}[noitemsep]
+    \item \texttt{rolls.identify\_front\_next}: vectorised computation using expiry arrays and \texttt{numpy.argmin}.
+    \item Active contracts require: (a) finite price, (b) expiry date $\geq$ observation date.
+    \item Spread = next close $-$ front close; liquidity roll = next volume $\geq \alpha \cdot$ front volume (default $\alpha=0.8$).
+\end{itemize}
 
-\begin{equation}
-z_t = \frac{\Delta S_t - \mu_{t}}{\sigma_{t}}
-\end{equation}
+\subsection{Spread-Widening Detection}
+\begin{itemize}[noitemsep]
+    \item Change series: $\Delta s_t = s_t - s_{t-1}$.
+    \item Z-score window: 20 buckets (approx.\ 2 trading days) for hourly pipeline; 30 days for daily pipeline.
+    \item Threshold: $z > 1.5$ plus optional absolute floor (unused by default).
+    \item Cool-down: 3-hour time delta for buckets or configurable integer window for daily analysis.
+    \item Outputs: boolean widening series, bucket-level summaries, preference scores (event rate vs.\ volume share), transition matrix.
+\end{itemize}
 
-where:
-\begin{align*}
-\Delta S_t &= S_t - S_{t-1} \quad \text{(consecutive intraday-period spread change)} \\
-\mu_t &= \frac{1}{w} \sum_{i=1}^{w} \Delta S_{t-i} \quad \text{(rolling mean, window } w\text{)} \\
-\sigma_t &= \sqrt{\frac{1}{w-1} \sum_{i=1}^{w} (\Delta S_{t-i} - \mu_t)^2} \quad \text{(rolling std dev)}
-\end{align*}
 
-\subsubsection{Detection Criteria}
 
-A widening event $W_t$ is flagged when:
+\section{Empirical Results (HG)}
 
-\begin{equation}
-W_t = \begin{cases}
-\text{True} & \text{if } z_t > \tau \text{ and } \Delta S_t > 0 \\
-\text{False} & \text{otherwise}
-\end{cases}
-\end{equation}
-
-\subsubsection{Parameter Selection}
+\subsection{Hourly Bucket Insights}
+\begin{itemize}[noitemsep]
+    \item Total buckets: 44{,}428 (2008--2024).
+    \item Widening events detected: 2{,}736 (frequency 6.16\%).
+    \item Median timing: 28 days before expiry (IQR 16--43, range 0--116).
+\end{itemize}
 
 \begin{table}[H]
-\centering
-\begin{tabular}{lll}
-\toprule
-\textbf{Parameter} & \textbf{Value} & \textbf{Rationale} \\
-\midrule
-Window ($w$) & 20 intraday periods & Short-term dynamics \\
-Z-threshold ($\tau$) & 1.5 & Event threshold for standardized changes \\
-Min periods & 10 intraday periods & Ensures statistical validity \\
-Cool-down & 3.0 hours & Time-based separation, more intuitive \\
-Events detected & 2,736 & Total flagged during study window \\
-Detection rate & ~6.2\% & Share of intraday periods flagged \\
-\bottomrule
-\end{tabular}
-\caption{Detection Parameters for Hourly Analysis}
+    \centering
+    \caption{Roll Events by Intraday Period (2008--2024)}
+    \begin{tabular}{llrrr}
+        \toprule
+        Bucket & Session Label & Events & Share (\%) & Pref.\ Score \\
+        \midrule
+        1 & 09:00 -- US Open & 383 & 14.00 & 1.04 \\
+        2 & 10:00 -- US Morning & 284 & 10.38 & 0.73 \\
+        3 & 11:00 -- US Late Morning & 238 & 8.70 & 0.70 \\
+        4 & 12:00 -- US Midday & 186 & 6.80 & 0.60 \\
+        5 & 13:00 -- US Early Afternoon & 132 & 4.82 & 0.87 \\
+        6 & 14:00 -- US Late Afternoon & 198 & 7.24 & \textbf{2.18} \\
+        7 & 15:00 -- US Close & 151 & 5.48 & \textbf{2.02} \\
+        8 & Late US / After-Hours & 296 & 10.78 & 0.87 \\
+        9 & Asia Session & 454 & 16.67 & 0.47 \\
+        10 & Europe Session & 414 & 15.13 & 0.51 \\
+        \bottomrule
+    \end{tabular}
+    \label{tab:bucket-summary}
 \end{table}
 
-The choice of $\tau = 1.5$ standard deviations corresponds to approximately the 93rd percentile under normal distribution, flagging only substantial deviations from typical spread behavior.
+\paragraph{Observation}
+US regular hours account for 57.4\% of events despite fewer minutes per day and dominate the preference scores---late afternoon and close sessions exhibit more than twice the expected activity based on volume share, highlighting concentrated institutional rolling near settlement.
 
-\subsubsection{Cool-down Mechanism}
-
-To prevent multiple signals for the same underlying roll event, we implement a 3-hour time-based cool-down at hourly granularity:
-
-\begin{equation}
-W_t = \begin{cases}
-\text{False} & \text{if } \exists \, t' \in [t-3, t-1] \text{ where } W_{t'} = \text{True} \\
-\text{as above} & \text{otherwise}
-\end{cases}
-\end{equation}
-
-\subsection{Timing Analysis}
-
-For each detected widening event $W_t = \text{True}$, we calculate:
-
-\begin{equation}
-\text{Days to Expiry}_t = E[F_t] - t
-\end{equation}
-
-where $E[F_t]$ is the expiration date of the front contract identified at time $t$.
-
-\section{Results (Intraday Periods)}
-
-\subsection{Intraday Distribution of Events}
-
-The analysis detected \textbf{2,736 roll events} across 44,428 intraday periods (~6.2\% detection rate). The distribution reveals strong intraday patterns:
-
-\begin{table}[H]
-\centering
-\begin{tabular}{llrr}
-\toprule
-\textbf{Intraday Period} & \textbf{Label} & \textbf{Events} & \textbf{Share} \\
-\midrule
-1 & 09:00 US Open & 383 & 13.99\% \\
-2 & 10:00 US Morning & 284 & 10.38\% \\
-3 & 11:00 US Late Morning & 238 & 8.70\% \\
-4 & 12:00 US Midday & 186 & 6.80\% \\
-5 & 13:00 US Early Afternoon & 132 & 4.82\% \\
-6 & 14:00 US Late Afternoon & 198 & 7.23\% \\
-7 & 15:00 US Close & 151 & 5.52\% \\
-8 & Late US/After-Hours (5h) & 296 & 10.81\% \\
-9 & Asia Session (6h) & 454 & 16.59\% \\
-10 & Europe Session (6h) & 414 & 15.13\% \\
-\bottomrule
-\end{tabular}
-\caption{Distribution of roll events by intraday period}
-\label{table:intraday-dist}
-\end{table}
-
-Key findings:
-\begin{itemize}
-    \item \textbf{US Regular Hours}: 1,572 events (57.4\% of total) - dramatic increase from 40.4\%
-    \item \textbf{Off-Peak Sessions}: 1,165 events (42.6\% of total)
-    \item \textbf{Hourly Density}: US hours average 224.6 events/hour vs 72.4 events/hour off-peak (3.1x higher)
-    \item \textbf{Peak Single Hour}: 09:00 US Open with 383 events (14\% of all events)
+\subsection{Daily Panel Validation}
+\begin{itemize}[noitemsep]
+    \item Contracts analysed after filtering: 109 (out of 202).
+    \item Valid spread observations: 3{,}309 across 5{,}105 trading days.
+    \item Widening events detected: 183 (3.6\% hit-rate).
+    \item Median days-to-expiry: 14 (mean 24.0, range 0--352); daily view emphasises late rollers once sparse contracts are excluded.
+    \item Liquidity rolls (volume-based) confirm 64\% of spread signals.
 \end{itemize}
 
-\subsection{Hourly Timing (Days to Expiry)}
+\section{Usage Guide}
 
-Using hourly events aligned to front-contract expiries, days-to-expiry statistics: \textbf{median} ~28 days, \textbf{mean} ~30.7, IQR 16--43, range 0--116.
-
-\begin{table}[H]
-\centering
-\begin{tabular}{lrrrrrrr}
-\toprule
-\textbf{Count} & \textbf{Mean} & \textbf{Median} & \textbf{Std} & \textbf{P25} & \textbf{P75} & \textbf{Min} & \textbf{Max} \\
-\midrule
-2{,}736 & 30.65 & 28 & 19.32 & 16 & 43 & 0 & 116 \\
-\bottomrule
-\end{tabular}
-\caption{Days to expiry summary (hourly intraday-period events)}
-\end{table}
-
-\subsection{Volume-Adjusted Preference Scores}
-
-Preference scores adjust for volume patterns, with mean normalized to 1.0. Values above 1.0 indicate more roll activity than expected given volume share:
-
-\begin{table}[H]
-\centering
-\begin{tabular}{llr}
-\toprule
-\textbf{Rank} & \textbf{Intraday Period Label} & \textbf{Score} \\
-\midrule
-1 & 14:00 US Late Afternoon & 2.22 \\
-2 & 15:00 US Close & 1.89 \\
-3 & 09:00 US Open & 1.05 \\
-4 & 13:00 US Early Afternoon & 0.89 \\
-5 & Late US/After-Hours & 0.89 \\
-\bottomrule
-\end{tabular}
-\caption{Top 5 intraday periods by volume-adjusted preference}
-\label{table:preference-scores}
-\end{table}
-
-The end-of-day US hours (14:00-15:00) show \textbf{2x higher roll activity} than expected given their volume share, suggesting strategic timing around market close. Conversely, Asia (0.48) and Europe (0.52) show lower preference despite high absolute event counts, reflecting their high volume shares.
-
-\subsection{Volume-Based Validation}
-
-As an independent validation, we compute liquidity roll signals based on volume transitions:
-
-\begin{equation}
-L_t = \begin{cases}
-\text{True} & \text{if } V_{N_t}(t) \geq \alpha \cdot V_{F_t}(t) \\
-\text{False} & \text{otherwise}
-\end{cases}
-\end{equation}
-
-where $V_c(t)$ denotes volume of contract $c$ at time $t$, and $\alpha = 0.8$ (80\% threshold).
-
-\textbf{Results}: 4,088 liquidity signals detected (65.9\% of trading days).
-
-\textbf{Interpretation}: The high frequency of liquidity signals relative to widening events (65.9\% vs. 4.5\%) suggests that:
-\begin{enumerate}
-    \item Volume transitions are more gradual than discrete
-    \item Our widening detection captures only the most significant roll activity
-    \item Multiple smaller rolls may occur that don't trigger spread widening
-\end{enumerate}
-
-\section{Discussion}
-
-\subsection{Interpretation of Results}
-
-\subsubsection{Heterogeneous Roll Strategies}
-
-The wide distribution (IQR = 15 days, range = 66 days) and multiple modes indicate that copper futures market participants employ diverse roll strategies:
-
-\begin{enumerate}
-    \item \textbf{Early Rollers (20--30 days before expiry)}: Likely institutional players rolling large positions gradually to minimize market impact. The 21-day and 29-day modes suggest some participants follow fixed schedules.
-    
-    \item \textbf{Middle Rollers (5--14 days before expiry)}: The modal behavior, possibly representing the ``optimal'' trade-off between roll risk and timing costs. The 7-day and 12-day modes are prominent.
-    
-    \item \textbf{Late Rollers (0--4 days before expiry)}: Nearly 19\% wait until the final days. These may include:
-    \begin{itemize}
-        \item Hedgers with physical positions timed to delivery
-        \item Speculators attempting to profit from roll predictability
-        \item Smaller participants without liquidity concerns
-    \end{itemize}
-\end{enumerate}
-
-\subsubsection{Absence of Universal Roll Date}
-
-Unlike some ETF products (e.g., USO oil fund) that publicly disclose fixed roll schedules, the HG copper market exhibits no single dominant roll date. This suggests:
-
-\begin{itemize}
-    \item No large single ETF dominates copper futures positioning
-    \item Market participants strategically vary timing to reduce predictability
-    \item Roll costs are spread across multiple days rather than concentrated
+\subsection{Installation}
+\begin{verbatim}
+python -m pip install --upgrade pip
+python -m pip install -e .[dev,viz]
+\end{verbatim}
+The editable install exposes console scripts:
+\begin{itemize}[noitemsep]
+    \item \texttt{futures-roll-organize}
+    \item \texttt{futures-roll-hourly}
+    \item \texttt{futures-roll-daily}
 \end{itemize}
 
+\subsection{Hourly Analysis}
+\begin{verbatim}
+futures-roll-hourly \
+  --settings config/settings.yaml \
+  --root organized_data/copper \
+  --output-dir outputs
+\end{verbatim}
+Optional flags: \texttt{--metadata}, \texttt{--max-files}, \texttt{--log-level}.
 
-\subsubsection{Economic Implications}
+\subsection{Daily Analysis}
+\begin{verbatim}
+futures-roll-daily \
+  --settings config/settings.yaml \
+  --root organized_data/copper \
+  --output-dir outputs
+\end{verbatim}
 
-\textbf{For Roll Cost Analysis}:
-\begin{itemize}
-    \item Average roll window spans 15 days (IQR: 6--21)
-    \item Roll premium/cost distributed rather than concentrated
-    \item Early rolling may signal sophisticated market timing
+\subsection{Testing}
+\begin{verbatim}
+pytest
+\end{verbatim}
+Unit tests cover bucket assignment/aggregation, Z-score detection, and cool-down behaviour.
+
+\section{Conclusion and Future Work}
+
+\subsection{Key Takeaways}
+\begin{itemize}[noitemsep]
+    \item Refactored architecture cleanly separates ingest, aggregation, event detection, and CLI orchestration.
+    \item Hourly analytics reveal heterogeneous roll behaviour, with statistically significant clustering during 14:00--15:00 CT.
+    \item Daily validation (with quality filters) confirms persistent signals and highlights the importance of contract selection.
 \end{itemize}
 
-\textbf{For Trading Strategies}:
-\begin{itemize}
-    \item Calendar spread trades should focus on 5--21 day pre-expiry window
-    \item No single ``roll date'' to front-run
-    \item Volume analysis complements spread analysis for timing
-\end{itemize}
-
-
-% [Section intentionally removed per scope: no limitations or future work.]
-
-\section{Project Structure and Documentation}
-
-\subsection{Comprehensive Framework}
-
-The analysis is now part of a fully documented Python framework with production-ready infrastructure:
-
-\begin{itemize}
-    \item \textbf{Root-level README.md}: Complete project overview with installation instructions, quick start guide, and key findings
-    \item \textbf{requirements.txt}: All Python dependencies (pandas, numpy, pyyaml, matplotlib, pytest)
-    % USAGE.md removed in streamlined docs
-    \item \textbf{setup.py}: Proper Python package structure for pip installation
-    \item \textbf{Unit tests}: Test suite in \texttt{tests/} directory for validation
-    \item \textbf{Relative paths}: All configurations use relative paths for portability across systems
-    \item \textbf{Version control}: \texttt{.gitignore} configured for git repository
-\end{itemize}
-
-\subsection{Directory Organization}
-
-\begin{lstlisting}[language=bash]
-futures_individual_contracts_1min/
-|-- README.md                    # Main documentation
-|-- requirements.txt             # Python dependencies  
-% USAGE.md removed in streamlined docs
-|-- setup.py                     # Package installation
-|-- organize_data.py             # Data organization script
-|-- data_inventory.csv           # Maps 13,548 files
-|-- organized_data/              # 32 commodity folders
-|   |-- copper/                  # 202 HG contracts
-|   |-- gold/                    # GC contracts
-|   |-- silver/                  # SI contracts
-|   `-- [29 other commodities]   
-|-- etf_roll_analysis/           # Analysis framework
-|   |-- config/settings.yaml     # Configuration
-|   |-- src/roll_analysis/       # Core modules
-|   |-- scripts/                 # Analysis scripts
-|   `-- outputs/                 # Results
-|-- tests/                       # Unit test suite
-`-- presentation_docs/           # LaTeX reports
-\end{lstlisting}
-
-This structure enables researchers to easily extend the analysis to any commodity by simply changing one line in the configuration file.
-
-\section{Framework Usage and Extension Guide}
-\label{sec:usage}
-
-This section provides comprehensive instructions for utilizing the futures roll analysis framework, designed to help users replicate our copper analysis and extend it to other commodities in the dataset.
-
-\subsection{System Requirements and Installation}
-
-\subsubsection{Prerequisites}
-
-Before beginning, ensure your system meets the following requirements:
-
-\begin{table}[H]
-\centering
-\begin{tabular}{ll}
-\toprule
-\textbf{Component} & \textbf{Requirement} \\
-\midrule
-Python & Version 3.8 or higher \\
-Operating System & Windows, Linux, macOS, or WSL \\
-Memory & Minimum 4GB RAM (8GB recommended) \\
-Disk Space & 10GB for data + analysis outputs \\
-LaTeX (optional) & For report compilation only \\
-\bottomrule
-\end{tabular}
-\caption{System Requirements}
-\end{table}
-
-\subsubsection{Step-by-Step Installation}
-
-\begin{enumerate}
-    \item \textbf{Navigate to the project directory:}
-\begin{lstlisting}[language=bash]
-cd futures_individual_contracts_1min/
-\end{lstlisting}
-
-    \item \textbf{Create a Python virtual environment (recommended):}
-\begin{lstlisting}[language=bash]
-# Windows
-python -m venv venv
-venv\Scripts\activate
-
-# Linux/Mac/WSL
-python3 -m venv venv
-source venv/bin/activate
-\end{lstlisting}
-
-    \item \textbf{Install required packages:}
-\begin{lstlisting}[language=bash]
-pip install -r requirements.txt
-\end{lstlisting}
-
-    \item \textbf{Verify installation:}
-\begin{lstlisting}[language=bash]
-python -c "import pandas, numpy, yaml; print('All packages installed')"
-\end{lstlisting}
-
-    \item \textbf{(Optional) Install the package for development:}
-\begin{lstlisting}[language=bash]
-pip install -e .
-\end{lstlisting}
-\end{enumerate}
-
-\subsubsection{Troubleshooting Installation Issues}
-
-\begin{itemize}
-    \item \textbf{``pip: command not found''}: Install pip with \texttt{python -m ensurepip}
-    \item \textbf{``No module named yaml''}: The package name is \texttt{pyyaml}, not \texttt{yaml}
-    \item \textbf{Permission errors}: Use \texttt{pip install --user} or activate a virtual environment
-    \item \textbf{Version conflicts}: Create a fresh virtual environment to isolate dependencies
-\end{itemize}
-
-\subsection{Understanding the Codebase Structure}
-
-\subsubsection{Directory Organization}
-
-The framework follows a modular architecture designed for extensibility:
-
-\begin{lstlisting}
-futures_individual_contracts_1min/
-|-- organize_data.py           # Step 1: Organize raw data files
-|-- organized_data/             # Result: 32 commodity folders
-|   |-- copper/                 # 202 HG contract files
-|   |-- gold/                   # GC contracts
-|   `-- [30 other commodities]
-|-- etf_roll_analysis/          # Main analysis framework
-|   |-- config/
-|   |   `-- settings.yaml       # Configuration file
-|   |-- src/roll_analysis/      # Core analysis modules
-|   |   |-- ingest.py          # Data loading
-|   |   |-- panel.py           # Panel assembly
-|   |   |-- rolls.py           # Contract identification
-|   |   |-- spread.py          # Spread calculation
-|   |   `-- events.py          # Roll detection
-|   |-- scripts/
-|   |   `-- analyze.py             # Unified CLI (daily/hourly)
-|   `-- outputs/                # Analysis results
-|       |-- panels/             # Price matrices
-|       `-- roll_signals/       # Detected events
-`-- presentation_docs/          # Reports and documentation
-\end{lstlisting}
-
-\subsubsection{Data Flow Through the Pipeline}
-
-The analysis follows a sequential pipeline architecture:
-
-\begin{enumerate}
-    \item \textbf{Data Ingestion} (\texttt{ingest.py}): Loads 1-minute CSV files, aggregates to intraday-period OHLCV (10 periods/day)
-    \item \textbf{Panel Assembly} (\texttt{panel.py}): Creates date × contract price matrix
-    \item \textbf{Roll Identification} (\texttt{rolls.py}): Identifies front/next month contracts
-    \item \textbf{Spread Calculation} (\texttt{spread.py}): Computes calendar spreads
-    \item \textbf{Event Detection} (\texttt{events.py}): Applies z-score methodology
-    \item \textbf{Output Generation}: Saves results to CSV/Parquet files
-\end{enumerate}
-
-\subsection{Running Your First Analysis}
-
-\subsubsection{Default Analysis: Copper Futures}
-
-The framework is pre-configured to analyze copper (HG) futures. To run the analysis:
-
-\begin{enumerate}
-    \item \textbf{Navigate to the analysis directory:}
-\begin{lstlisting}[language=bash]
-# Hourly (bucket)
-python -m etf_roll_analysis.scripts.analyze --granularity hourly \
-  --root ../organized_data/copper \
-  --settings etf_roll_analysis/config/settings.yaml \
-  --metadata etf_roll_analysis/metadata/contracts_metadata.csv \
-  --output_dir etf_roll_analysis/outputs
-
-# Daily
-python -m etf_roll_analysis.scripts.analyze --granularity daily \
-  --root ../organized_data/copper \
-  --settings etf_roll_analysis/config/settings.yaml \
-  --metadata etf_roll_analysis/metadata/contracts_metadata.csv \
-  --output_dir etf_roll_analysis/outputs
-\end{lstlisting}
-
-    \item \textbf{Monitor the output:}
-\begin{lstlisting}
-Loading HG data from ../organized_data/copper
-Found 202 contracts
-Processing: HG_F08, HG_G08, HG_H08...
-Building price panel...
-Detecting roll events...
-Found N widening events
-Saving results to outputs/
-Analysis complete!
-\end{lstlisting}
-\end{enumerate}
-
-\subsubsection{Understanding the Output Files}
-
-The analysis generates four key output files:
-
-\begin{table}[H]
-\centering
-\small
-\begin{tabular}{p{5.5cm}p{6.5cm}}
-\toprule
-\textbf{File} & \textbf{Contents} \\
-\midrule
-\texttt{panels/hg\_panel\_simple.csv} & Price matrix (dates × contracts), ~1.7MB \\
-\texttt{roll\_signals/}\newline\texttt{hourly\_widening.csv} & Detected hourly roll events with timing \\
-\texttt{roll\_signals/hg\_spread.csv} & Daily calendar spread time series \\
-\texttt{roll\_signals/}\newline\texttt{hg\_liquidity\_roll.csv} & Volume-based roll signals \\
-\bottomrule
-\end{tabular}
-\caption{Output File Descriptions}
-\end{table}
-
-\subsection{Extending to Other Commodities}
-
-\subsubsection{Available Commodities}
-
-The framework supports analysis of 32 commodity types:
-
-\begin{table}[H]
-\centering
-\begin{tabular}{llll}
-\toprule
-\textbf{Category} & \textbf{Commodity} & \textbf{Folder Name} & \textbf{Symbol} \\
-\midrule
-\multirow{6}{*}{Metals} & Copper & \texttt{copper} & HG \\
- & Gold & \texttt{gold} & GC \\
- & Silver & \texttt{silver} & SI \\
- & Platinum & \texttt{platinum} & PL \\
- & Palladium & \texttt{palladium} & PA \\
- & Aluminum & \texttt{aluminum} & ALI \\
-\midrule
-\multirow{5}{*}{Energy} & Crude Oil & \texttt{crude\_oil} & CL \\
- & Natural Gas & \texttt{natural\_gas} & NG \\
- & Heating Oil & \texttt{heating\_oil} & HO \\
- & Gasoline & \texttt{gasoline} & RB \\
- & Brent Crude & \texttt{brent\_crude} & BZ \\
-\midrule
-\multirow{7}{*}{Agriculture} & Corn & \texttt{corn} & ZC \\
- & Wheat & \texttt{wheat} & ZW \\
- & Soybeans & \texttt{soybeans} & ZS \\
- & Cotton & \texttt{cotton} & CT \\
- & Sugar & \texttt{sugar} & SB \\
- & Coffee & \texttt{coffee} & KC \\
- & Cocoa & \texttt{cocoa} & CC \\
-\midrule
-\multirow{3}{*}{Livestock} & Live Cattle & \texttt{live\_cattle} & LE \\
- & Lean Hogs & \texttt{lean\_hogs} & HE \\
- & Feeder Cattle & \texttt{feeder\_cattle} & GF \\
-\bottomrule
-\end{tabular}
-\caption{Available Commodities for Analysis}
-\end{table}
-
-\subsubsection{Switching to a Different Commodity}
-
-To analyze a different commodity, modify the configuration file:
-
-\begin{enumerate}
-    \item \textbf{Open the configuration file:}
-\begin{lstlisting}[language=bash]
-# From etf_roll_analysis directory
-nano config/settings.yaml  # or use any text editor
-\end{lstlisting}
-
-    \item \textbf{Change the data path:}
-\begin{lstlisting}
-# Original (copper):
-data:
-  minute_root: "../organized_data/copper"
-
-# Change to gold:
-data:
-  minute_root: "../organized_data/gold"
-
-# Or crude oil:
-data:
-  minute_root: "../organized_data/crude_oil"
-\end{lstlisting}
-
-    \item \textbf{Run the analysis:}
-\begin{lstlisting}[language=bash]
-python -m etf_roll_analysis.scripts.analyze --granularity hourly --root ../organized_data/gold
-# or daily:
-python -m etf_roll_analysis.scripts.analyze --granularity daily --root ../organized_data/gold
-\end{lstlisting}
-\end{enumerate}
-
-\subsection{Customizing Analysis Parameters}
-
-\subsubsection{Key Configuration Parameters}
-
-The \texttt{config/settings.yaml} file controls all analysis parameters:
-
-\begin{table}[H]
-\centering
-\small
-\begin{tabular}{p{4.5cm}p{2cm}p{5.5cm}}
-\toprule
-\textbf{Parameter} & \textbf{Default} & \textbf{Description} \\
-\midrule
-\texttt{spread.window\_buckets} & 20 & Rolling window for z-score (in buckets) \\
-\texttt{spread.z\_threshold} & 1.5 & Standard deviations for event detection \\
-\texttt{spread.cool\_down} & 3 & Days between consecutive events \\
-\texttt{roll\_rules.}\newline\texttt{liquidity\_threshold} & 0.8 & Volume ratio for liquidity signals \\
-\texttt{data.price\_field} & close & Price field to use (close/settle) \\
-\texttt{data.timezone} & US/Central & Market timezone \\
-\bottomrule
-\end{tabular}
-\caption{Configuration Parameters}
-\end{table}
-
-\subsubsection{Parameter Impact on Results}
-
-\textbf{Window Size} (\texttt{spread.window\_buckets}):
-\begin{itemize}
-    \item \textbf{Smaller (10-15)}: More responsive to recent changes, more signals
-    \item \textbf{Default (20)}: Balanced sensitivity and stability
-    \item \textbf{Larger (25-30)}: More stable, fewer false positives, may miss quick moves
-\end{itemize}
-
-\textbf{Z-Score Threshold} (\texttt{spread.z\_threshold}):
-\begin{itemize}
-    \item \textbf{Lower (1.0)}: Detects ~16\% of events, more sensitive
-    \item \textbf{Default (1.5)}: Detects ~5\% of events, balanced
-    \item \textbf{Higher (2.0)}: Detects ~2\% of events, only extreme moves
-\end{itemize}
-
-\textbf{Cool-down Period} (\texttt{spread.cool\_down}):
-\begin{itemize}
-    \item \textbf{Shorter (1-2)}: May capture multiple signals for same event
-    \item \textbf{Default (3)}: Prevents duplicate signals effectively
-    \item \textbf{Longer (5-7)}: May miss distinct but close events
-\end{itemize}
-
-\subsection{Interpreting Analysis Results}
-
-\subsubsection{Key Metrics to Examine}
-
-When reviewing the \texttt{hourly\_widening.csv} output:
-
-\begin{enumerate}
-    \item \textbf{days\_to\_expiry}: Most important metric - when rolls occur
-    \item \textbf{z\_score}: Magnitude of the spread widening (higher = stronger signal)
-    \item \textbf{spread\_change}: Actual dollar amount of spread widening
-    \item \textbf{front\_contract}: Which contract is being rolled from
-    \item \textbf{next\_contract}: Which contract is being rolled into
-\end{enumerate}
-
-\subsubsection{Statistical Summary}
-
-To generate summary statistics from the results:
-
-\begin{lstlisting}[language=python]
-import pandas as pd
-
-# Load results
-events = pd.read_csv('outputs/roll_signals/hourly_widening.csv')
-
-# Summary statistics
-print(f"Total events: {len(events)}")
-print(f"Median days to expiry: {events['days_to_expiry'].median()}")
-print(f"Mean days to expiry: {events['days_to_expiry'].mean():.2f}")
-print(f"Std dev: {events['days_to_expiry'].std():.2f}")
-
-# Distribution by range
-ranges = [(0,4), (5,9), (10,14), (15,19), (20,24), (25,29), (30,100)]
-for low, high in ranges:
-    count = len(events[(events['days_to_expiry'] >= low) & 
-                       (events['days_to_expiry'] <= high)])
-    pct = 100 * count / len(events)
-    print(f"{low}-{high} days: {count} events ({pct:.1f}%)")
-\end{lstlisting}
-
-\subsection{Common Issues and Solutions}
-
-\subsubsection{Data-Related Issues}
-
-\begin{table}[H]
-\centering
-\begin{tabular}{p{4cm}p{8cm}}
-\toprule
-\textbf{Issue} & \textbf{Solution} \\
-\midrule
-``No contracts found'' & Check that data exists in the specified folder \\
-``KeyError: 'close''' & Verify CSV files have correct column names \\
-``Memory error'' & Process fewer contracts or increase system RAM \\
-``NaN in spreads'' & Normal for dates with missing data; framework handles it \\
-\bottomrule
-\end{tabular}
-\caption{Common Data Issues}
-\end{table}
-
-\subsubsection{Configuration Issues}
-
-\begin{itemize}
-    \item \textbf{Path not found}: Use relative paths from \texttt{etf\_roll\_analysis} directory
-    \item \textbf{YAML syntax error}: Check indentation (use spaces, not tabs)
-    \item \textbf{Parameter out of range}: Window must be > 2, threshold > 0
-\end{itemize}
-
-\subsubsection{Performance Optimization}
-
-For large datasets or multiple commodities:
-
-\begin{enumerate}
-    \item \textbf{Use Parquet format}: Faster than CSV for large panels
-    \item \textbf{Limit date range}: Add date filters in configuration
-    \item \textbf{Parallel processing}: Run multiple commodities simultaneously in separate terminals
-    \item \textbf{Memory management}: Process in chunks if memory limited
-\end{enumerate}
-
-\subsection{Advanced Usage}
-
-\subsubsection{Batch Processing Multiple Commodities}
-
-Create a batch processing script:
-
-\begin{lstlisting}[language=python]
-# batch_analyze.py
-import yaml
-import subprocess
-import os
-
-commodities = ['copper', 'gold', 'silver', 'crude_oil', 'corn']
-
-for commodity in commodities:
-    # Update config
-    with open('config/settings.yaml', 'r') as f:
-        config = yaml.safe_load(f)
-    
-    config['data']['minute_root'] = f"../organized_data/{commodity}"
-    
-    with open('config/settings.yaml', 'w') as f:
-        yaml.dump(config, f)
-    
-    # Run analysis
-    print(f"Analyzing {commodity}...")
-    subprocess.run(['python', '-m', 'etf_roll_analysis.scripts.analyze', '--granularity', 'hourly'])
-    
-    # Rename outputs
-    os.rename('outputs/roll_signals/hourly_widening.csv',
-              f'outputs/roll_signals/{commodity}_hourly_widening.csv')
-\end{lstlisting}
-
-\subsubsection{Custom Visualizations}
-
-Generate charts from the results:
-
-\begin{lstlisting}[language=python]
-import pandas as pd
-import matplotlib.pyplot as plt
-
-# Load results
-events = pd.read_csv('outputs/roll_signals/hourly_widening.csv')
-
-# Create histogram
-plt.figure(figsize=(10, 6))
-plt.hist(events['days_to_expiry'], bins=30, edgecolor='black')
-plt.xlabel('Days to Expiry')
-plt.ylabel('Number of Roll Events')
-plt.title('Distribution of Roll Timing in Copper Futures')
-plt.axvline(events['days_to_expiry'].median(), color='red', 
-            linestyle='--', label=f'Median: {events["days_to_expiry"].median():.0f} days')
-plt.legend()
-plt.grid(True, alpha=0.3)
-plt.savefig('roll_distribution.png', dpi=300)
-plt.show()
-\end{lstlisting}
-
-\section{Conclusion}
-
-This hourly intraday-period analysis detected and characterized \textbf{2,736 roll events} in copper futures using a variable-granularity intraday structure. Key points:
-
-\begin{enumerate}
-    \item \textbf{Intraday Pattern Discovery}: US regular hours show 3x higher roll density (224.6 events/hour) compared to off-peak sessions (72.4 events/hour)
-    
-    \item \textbf{End-of-Day Concentration}: 14:00-15:00 CT exhibits 2x higher preference scores (2.22 and 1.89), indicating strategic timing around market close
-    
-    \item \textbf{Detection summary}: 2,736 events over 44,428 intraday periods (~6.2\% of periods) using a 20-period window and 3-hour cool-down
-    
-    \item \textbf{Intraday structure}: 7 one-hour US regular periods + 3 multi-hour session periods (Late US, Asia, Europe)
-    
-    \item \textbf{Reproducible Framework}: Production-ready implementation for 32 commodity types with comprehensive documentation
-\end{enumerate}
-
-The absence of a universal roll date in HG copper contrasts with some commodity ETFs that follow fixed schedules, suggesting a more sophisticated and distributed market microstructure. This has implications for:
-
-\begin{itemize}
-    \item Calendar spread trading strategies
-    \item Roll cost estimation for institutional portfolios
-    \item Market making during roll periods
-    \item Understanding copper futures market efficiency
-\end{itemize}
-
-The developed framework is modular and extensible, ready for application to the 31 additional commodity types in our organized dataset. The analysis framework has been packaged for academic research use. With installation guides (\texttt{requirements.txt}, \texttt{setup.py}) and test coverage (\texttt{tests/}), the framework is ready for extension to all 32 commodity types. The modular architecture and relative path configuration ensure portability and reproducibility across different computing environments.
-
-\section*{Technical Implementation}
-
-\subsection*{Framework Architecture}
-
-The analysis pipeline consists of streamlined components:
-
-\begin{itemize}
-    \item \textbf{Data Preparation}: \texttt{organize\_data.py} organizes 13,548 files into 32 commodity folders
-    \item \textbf{Core Modules} (in \texttt{src/roll\_analysis/}):
-    \begin{itemize}
-        \item \texttt{ingest.py}: Data loading and intraday-period aggregation
-        \item \texttt{bucket.py}: Intraday-period definitions (10 periods/day)
-        \item \texttt{bucket\_panel.py}: Intraday-period panel assembly
-        \item \texttt{bucket\_events.py}: Intraday-period event detection
-        \item \texttt{rolls.py}: Front/next contract identification
-        \item \texttt{spread.py}: Calendar spread calculation
-        \item \texttt{data\_quality.py}: Contract filtering and quality checks
-    \end{itemize}
-    \item \textbf{Analysis Script}: \texttt{scripts/analyze.py} (unified CLI; hourly/daily)
-\end{itemize}
-
-\subsection*{Configuration}
-
-All parameters externalized in \texttt{config/settings.yaml} using relative paths for portability:
-
-\begin{lstlisting}
-data:
-  minute_root: "../organized_data/copper"  # Relative path
-  timezone: "US/Central"
-  price_field: "close"
-
-spread:
-  method: "zscore"
-  window_buckets: 20
-  z_threshold: 1.5
-  cool_down_hours: 3.0
-
-roll_rules:
-  liquidity_threshold: 0.8
-  confirm_days: 1
-\end{lstlisting}
-
-\subsection*{Installation and Reproducibility}
-
-The framework is now a proper Python package with comprehensive documentation:
-
-\begin{lstlisting}[language=bash]
-# Install dependencies
-pip install -r requirements.txt
-
-# Install package in development mode (optional)
-pip install -e .
-
-# Run tests to verify installation
-python -m pytest tests/
-
-# Analyze any commodity (module invocation)
-# 1. Edit config/settings.yaml to change commodity path
-# 2. Run analysis via unified CLI
-python -m etf_roll_analysis.scripts.analyze --granularity hourly \
-  --root ../organized_data/copper \
-  --settings etf_roll_analysis/config/settings.yaml \
-  --metadata etf_roll_analysis/metadata/contracts_metadata.csv \
-  --output_dir etf_roll_analysis/outputs
-\end{lstlisting}
-
-Complete documentation available:
-\begin{itemize}
-    \item \texttt{README.md}: Project overview and quick start guide
-    % USAGE.md removed in streamlined docs
-    \item \texttt{requirements.txt}: All Python dependencies
-    \item \texttt{setup.py}: Package installation configuration
-\end{itemize}
-
-All analysis outputs stored in \texttt{outputs/} directory:
-\begin{itemize}
-    \item \texttt{panels/hg\_panel\_simple.csv}: Price panel (1.7 MB)
-    \item \texttt{roll\_signals/hg\_widening.csv}: Detected events (281 rolls)
-    \item \texttt{roll\_signals/hg\_spread.csv}: Calendar spreads time series
-    \item \texttt{roll\_signals/hg\_liquidity\_roll.csv}: Volume-based signals
-\end{itemize}
-
-\section*{References}
-
-\begin{enumerate}
-    \item CME Group. ``Copper Futures Contract Specifications.'' \url{https://www.cmegroup.com/markets/metals/base/copper.contractSpecs.html}
-    
-    \item CME Group. ``Copper Futures Calendar.'' \url{https://www.cmegroup.com/markets/metals/base/copper.calendar.html}
-    
-    \item CME Group Rulebook. ``Chapter 112: Copper Futures.'' Accessed 2024.
-\end{enumerate}
-
-\appendix
-
-\section{Quick Reference Card}
-
-\subsection{Essential Commands}
-
-\begin{tcolorbox}[title=\textbf{Quick Command Reference}]
-\begin{lstlisting}[language=bash]
-# Setup (one-time)
-cd futures_individual_contracts_1min/
-pip install -r requirements.txt
-python organize_data.py  # If data not organized
-
-# Run Hourly Analysis
-python -m etf_roll_analysis.scripts.analyze --granularity hourly \
-  --root ../organized_data/copper \
-  --settings etf_roll_analysis/config/settings.yaml \
-  --metadata etf_roll_analysis/metadata/contracts_metadata.csv \
-  --output_dir etf_roll_analysis/outputs
-
-# Change Commodity
-# Edit config/settings.yaml:
-# data.minute_root: "../organized_data/gold"
-\end{lstlisting}
-\end{tcolorbox}
-
-\subsection{Key Configuration Parameters}
-
-\begin{table}[H]
-\centering
-\begin{tabular}{lll}
-\toprule
-\textbf{Parameter} & \textbf{Default} & \textbf{Effect} \\
-\midrule
-\texttt{spread.window\_buckets} & 20 & Sensitivity window (~2 days) \\
-\texttt{spread.z\_threshold} & 1.5 & Detection rate (6.16\%) \\
-\texttt{spread.cool\_down\_hours} & 3.0 & Time-based event separation \\
-\texttt{bucket\_config.enabled} & true & Enable hourly analysis \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\subsection{Output Files Quick Guide}
-
-\begin{table}[H]
-\centering
-\small
-\begin{tabular}{p{5.5cm}p{4cm}}
-\toprule
-\textbf{File} & \textbf{Contents} \\
-\midrule
-\texttt{panels/hg\_panel\_simple.csv} & Price matrix \\
-\texttt{roll\_signals/}\newline\texttt{hourly\_widening.csv} & Hourly roll events \\
-\texttt{roll\_signals/hg\_spread.csv} & Calendar spreads \\
-\texttt{roll\_signals/}\newline\texttt{hg\_liquidity\_roll.csv} & Volume signals \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\subsection{Commodity Folder Names}
-
-\textbf{Metals:} copper, gold, silver, platinum, palladium \\
-\textbf{Energy:} crude\_oil, natural\_gas, heating\_oil, gasoline \\
-\textbf{Agriculture:} corn, wheat, soybeans, cotton, sugar, coffee \\
-\textbf{Livestock:} live\_cattle, lean\_hogs, feeder\_cattle
-
-\subsection{Key Statistical Formulas}
-
-\begin{align*}
-\text{Z-score} &= \frac{\Delta S_t - \mu_{20}}{\sigma_{20}} \\
-\text{Calendar Spread} &= P_{\text{next}} - P_{\text{front}} \\
-\text{Detection} &= z_t > 1.5 \text{ and } \Delta S_t > 0
-\end{align*}
-
-\textbf{Full documentation:} See Section 7 of this report
 
 \end{document}

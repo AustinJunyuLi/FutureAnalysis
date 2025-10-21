@@ -48,4 +48,4 @@ spread:
   abs_min: null              # Minimum absolute change (set to 0.020 to filter noise if needed)
   cool_down_hours: 3.0       # Time-based cool-down between events (hours)
 
-output_dir: "outputs"
+output_dir: "../outputs"
