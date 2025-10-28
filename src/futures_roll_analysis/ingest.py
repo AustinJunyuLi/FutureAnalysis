@@ -84,24 +84,19 @@ def load_minutes(
 ) -> pd.DataFrame:
     """Load a minute-level file (CSV/Parquet) into a DataFrame indexed by timestamp."""
     file_path = file_path.resolve()
-    if file_path.suffix.lower() in {".parquet", ".pq"}:
+    suffix = file_path.suffix.lower()
+    if suffix in {".parquet", ".pq"}:
         df = pd.read_parquet(file_path)
+        ts_col = _detect_timestamp_column(df.columns)
+        if ts_col is None:
+            raise ValueError(f"No timestamp column found in {file_path}")
     else:
         df = pd.read_csv(file_path)
-        first_col = df.columns[0]
-        try:
-            pd.to_datetime(first_col)
-            df = pd.read_csv(
-                file_path,
-                header=None,
-                names=["timestamp", "open", "high", "low", "close", "volume"],
-            )
-        except (ValueError, TypeError):
-            pass
-
-    ts_col = _detect_timestamp_column(df.columns)
-    if ts_col is None:
-        raise ValueError(f"No timestamp column found in {file_path}")
+        ts_col = _detect_timestamp_column(df.columns)
+        if ts_col is None:
+            # Try reading without headers if no timestamp column found
+            df = pd.read_csv(file_path, header=None)
+            df, ts_col = _coerce_minute_dataframe(df)
 
     df[ts_col] = pd.to_datetime(df[ts_col], utc=False, errors="coerce")
     df = df.dropna(subset=[ts_col])
@@ -229,7 +224,48 @@ def build_contract_frames(
     return grouped
 
 
-def _detect_timestamp_column(columns: Iterable[str]) -> Optional[str]:
+def _coerce_minute_dataframe(df: pd.DataFrame) -> Tuple[pd.DataFrame, str]:
+    """
+    Infer sensible column names for minute data lacking explicit headers.
+
+    Returns
+    -------
+    Tuple of coerced DataFrame and resolved timestamp column name.
+    """
+    columns = list(df.columns)
+    default_names = [
+        "timestamp",
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+        "open_interest",
+    ]
+
+    if all(isinstance(col, (int, np.integer)) for col in columns):
+        rename = {
+            col: default_names[i] if i < len(default_names) else f"extra_{i}"
+            for i, col in enumerate(columns)
+        }
+        df = df.rename(columns=rename)
+        timestamp_col = rename[columns[0]]
+    else:
+        first_col = columns[0]
+        parsed = pd.to_datetime(df[first_col], errors="coerce")
+        if parsed.notna().sum() == 0:
+            raise ValueError("Unable to infer timestamp column for minute data without headers")
+        df[first_col] = parsed
+        if isinstance(first_col, str):
+            timestamp_col = first_col
+        else:
+            timestamp_col = "timestamp"
+            df = df.rename(columns={first_col: timestamp_col})
+
+    return df, timestamp_col
+
+
+def _detect_timestamp_column(columns: Iterable[object]) -> Optional[str]:
     candidates = [
         "timestamp",
         "datetime",
@@ -240,11 +276,11 @@ def _detect_timestamp_column(columns: Iterable[str]) -> Optional[str]:
         "Timestamp",
     ]
     columns_list = list(columns)
-    for candidate in candidates:
-        if candidate in columns_list:
-            return candidate
+    for col in columns_list:
+        if isinstance(col, str) and col in candidates:
+            return col
 
-    lower_map = {col.lower(): col for col in columns_list}
+    lower_map = {col.lower(): col for col in columns_list if isinstance(col, str)}
     for candidate in candidates:
         lowered = candidate.lower()
         if lowered in lower_map:

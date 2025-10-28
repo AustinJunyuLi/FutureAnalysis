@@ -3,78 +3,64 @@ __pycache__/
 *.py[cod]
 *$py.class
 *.so
-.Python
-build/
-develop-eggs/
+*.egg
+*.egg-info/
 dist/
-downloads/
+build/
 eggs/
 .eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
 MANIFEST
 
-# Virtual Environment
+# Testing
+.coverage
+.pytest_cache/
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+.hypothesis/
+
+# Virtual Environments
 venv/
 ENV/
 env/
 .venv
 
-# IDEs
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-.DS_Store
-.claude/
-
 # Jupyter Notebooks
-.ipynb_checkpoints/
+.ipynb_checkpoints
 *.ipynb
 
-# Data files (large)
-organized_data/
+# IDE - VSCode
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.code-workspace
+
+# IDE - PyCharm
+.idea/
+*.iml
+
+# Data and Outputs (customize as needed)
+outputs/*
+!outputs/.gitkeep
+organized_data/*
+!organized_data/.gitkeep
+*.parquet
 *.csv
-!data_inventory.csv
-!metadata/*.csv
-!etf_roll_analysis/metadata/*.csv
-
-# Output files
-outputs/
 *.log
-*.out
-*.txt
 
-# LaTeX
-*.aux
-*.toc
-*.lot
-*.lof
-*.synctex.gz
-*.fdb_latexmk
-*.fls
-
-# Temporary files
-*.tmp
-*.temp
-*.bak
-
-# System files
-desktop.ini
+# OS Files
+.DS_Store
 Thumbs.db
+*~
+.*.swp
 
-# Personal files
-.kiro/
-personal_reference*
-Personal_Reference_Materials/
-
-# Keep important CSVs
-!requirements.txt
+# Project specific
+data_inventory.csv
+/tmp/

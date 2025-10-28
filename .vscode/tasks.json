@@ -1,0 +1,64 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Run All Tests",
+            "type": "shell",
+            "command": "${config:python.defaultInterpreterPath}",
+            "args": ["-m", "pytest", "tests/", "-v"],
+            "group": {
+                "kind": "test",
+                "isDefault": true
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "new"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Run Hourly Analysis",
+            "type": "shell",
+            "command": "${config:python.defaultInterpreterPath}",
+            "args": [
+                "-m", "futures_roll_analysis.cli.hourly",
+                "--settings", "config/settings.yaml",
+                "--root", "${workspaceFolder}/organized_data/copper",
+                "--output-dir", "outputs/vscode_run",
+                "--max-files", "5"
+            ],
+            "group": "build",
+            "presentation": {
+                "reveal": "always",
+                "panel": "new"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Install Package (Editable)",
+            "type": "shell",
+            "command": "${config:python.defaultInterpreterPath}",
+            "args": ["-m", "pip", "install", "-e", ".[dev,viz]"],
+            "group": "build",
+            "presentation": {
+                "reveal": "always"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Check Environment",
+            "type": "shell",
+            "command": "${config:python.defaultInterpreterPath}",
+            "args": [
+                "-c",
+                "import sys; import pandas; import numpy; print(f'Python: {sys.version}\\npandas: {pandas.__version__}\\nnumpy: {numpy.__version__}')"
+            ],
+            "group": "none",
+            "presentation": {
+                "reveal": "always",
+                "panel": "new"
+            },
+            "problemMatcher": []
+        }
+    ]
+}

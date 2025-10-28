@@ -71,8 +71,16 @@ def assemble_panel(
 def _merge_bucket_meta(
     frames: List[pd.DataFrame], index: pd.Index, columns: List[str]
 ) -> pd.DataFrame:
-    meta = pd.concat(frames, axis=0)
-    meta = meta.loc[:, columns]
-    meta = meta[~meta.index.duplicated(keep="first")]
-    meta = meta.reindex(index)
-    return meta
+    if not frames:
+        return pd.DataFrame(index=index, columns=columns)
+
+    stacked = pd.concat(frames, axis=0)
+    stacked = stacked.loc[:, columns]
+
+    def _first_nonnull(series: pd.Series) -> object:
+        non_null = series.dropna()
+        return non_null.iloc[0] if not non_null.empty else np.nan
+
+    resolved = stacked.groupby(stacked.index).agg(_first_nonnull)
+    resolved = resolved.reindex(index)
+    return resolved

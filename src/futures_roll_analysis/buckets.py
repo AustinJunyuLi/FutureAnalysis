@@ -108,14 +108,6 @@ def aggregate_to_buckets(minute_df: pd.DataFrame, tz: str = "US/Central") -> pd.
     grouped["session"] = grouped["bucket"].map(lambda b: get_bucket_info(int(b)).session)
     grouped.index = grouped.index.tz_localize(None)
 
-    if not grouped.empty:
-        first_minute_date = df.index.min().tz_convert(tz).tz_localize(None).normalize()
-        mask_early = grouped.index.normalize() < first_minute_date
-        if mask_early.any():
-            shifted = grouped.loc[mask_early].copy()
-            shifted.index = pd.Index([first_minute_date] * len(shifted))
-            grouped = pd.concat([grouped.loc[~mask_early], shifted]).sort_index()
-
     return grouped
 
 
@@ -169,8 +161,10 @@ def validate_bucket_aggregation(minute_df: pd.DataFrame, bucket_df: pd.DataFrame
     validation: Dict[str, bool] = {}
 
     if "volume" in minute_df.columns and "volume" in bucket_df.columns:
-        daily_volume_minute = minute_df.groupby(minute_df.index.date)["volume"].sum()
-        daily_volume_bucket = bucket_df.groupby(bucket_df.index.date)["volume"].sum()
+        minute_trade_dates = _compute_trading_dates(minute_df.index)
+        bucket_trade_dates = _compute_trading_dates(bucket_df.index, bucket_df["bucket"])
+        daily_volume_minute = minute_df.groupby(minute_trade_dates)["volume"].sum()
+        daily_volume_bucket = bucket_df.groupby(bucket_trade_dates)["volume"].sum()
         validation["volume_conservation"] = np.allclose(
             daily_volume_minute.values,
             daily_volume_bucket.reindex(daily_volume_minute.index, fill_value=0).values,
@@ -178,10 +172,12 @@ def validate_bucket_aggregation(minute_df: pd.DataFrame, bucket_df: pd.DataFrame
         )
 
     if all(col in minute_df.columns for col in ["high", "low"]):
-        daily_high_minute = minute_df.groupby(minute_df.index.date)["high"].max()
-        daily_low_minute = minute_df.groupby(minute_df.index.date)["low"].min()
-        daily_high_bucket = bucket_df.groupby(bucket_df.index.date)["high"].max()
-        daily_low_bucket = bucket_df.groupby(bucket_df.index.date)["low"].min()
+        minute_trade_dates = _compute_trading_dates(minute_df.index)
+        bucket_trade_dates = _compute_trading_dates(bucket_df.index, bucket_df["bucket"])
+        daily_high_minute = minute_df.groupby(minute_trade_dates)["high"].max()
+        daily_low_minute = minute_df.groupby(minute_trade_dates)["low"].min()
+        daily_high_bucket = bucket_df.groupby(bucket_trade_dates)["high"].max()
+        daily_low_bucket = bucket_df.groupby(bucket_trade_dates)["low"].min()
 
         validation["high_price_consistency"] = np.allclose(
             daily_high_minute.values,
@@ -196,3 +192,20 @@ def validate_bucket_aggregation(minute_df: pd.DataFrame, bucket_df: pd.DataFrame
 
     validation["has_all_buckets"] = all(b in bucket_df["bucket"].unique() for b in range(1, 11))
     return validation
+
+
+def _compute_trading_dates(index: pd.DatetimeIndex, bucket_ids: Optional[pd.Series] = None) -> pd.Index:
+    """
+    Map timestamps (and optionally bucket IDs) to the corresponding trading date.
+
+    Asia session buckets (id 9) start the next trading day at 21:00 prior day,
+    so they are attributed to the following calendar date.
+    """
+    normalized = index.tz_convert(None) if index.tz is not None else index
+    normalized = normalized.normalize()
+    if bucket_ids is not None:
+        shift = bucket_ids.eq(9).astype(int)
+    else:
+        hours = index.tz_convert(None).hour if index.tz is not None else index.hour
+        shift = (hours >= 21).astype(int)
+    return normalized + pd.to_timedelta(shift, unit="D")

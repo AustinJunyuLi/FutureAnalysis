@@ -1,0 +1,67 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: Current File",
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}/src:${env:PYTHONPATH}"
+            }
+        },
+        {
+            "name": "Debug: Hourly Analysis",
+            "type": "python",
+            "request": "launch",
+            "module": "futures_roll_analysis.cli.hourly",
+            "args": [
+                "--settings", "config/settings.yaml",
+                "--root", "${workspaceFolder}/organized_data/copper",
+                "--output-dir", "outputs/debug_run",
+                "--max-files", "5",
+                "--log-level", "DEBUG"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}/src:${env:PYTHONPATH}"
+            }
+        },
+        {
+            "name": "Debug: Daily Analysis",
+            "type": "python",
+            "request": "launch",
+            "module": "futures_roll_analysis.cli.daily",
+            "args": [
+                "--settings", "config/settings.yaml",
+                "--root", "${workspaceFolder}/organized_data/copper",
+                "--output-dir", "outputs/debug_run_daily",
+                "--log-level", "DEBUG"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}/src:${env:PYTHONPATH}"
+            }
+        },
+        {
+            "name": "Python: Run Tests",
+            "type": "python",
+            "request": "launch",
+            "module": "pytest",
+            "args": [
+                "tests",
+                "-v",
+                "--tb=short"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}/src:${env:PYTHONPATH}"
+            }
+        }
+    ]
+}

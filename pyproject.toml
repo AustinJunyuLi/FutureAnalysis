@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "futures-roll-analysis"
 version = "1.0.0"
 description = "Framework for analysing institutional roll patterns in futures markets."
-readme = "INIT_AGENT.md"
+readme = "README.md"
 requires-python = ">=3.9"
 authors = [{name = "Austin Li"}]
 license = {text = "Internal use only"}
@@ -32,6 +32,8 @@ viz = [
 ]
 
 [project.scripts]
+futures-roll = "futures_roll_analysis.unified_cli:main"
+# Legacy command aliases for backward compatibility
 futures-roll-hourly = "futures_roll_analysis.cli.hourly:main"
 futures-roll-daily = "futures_roll_analysis.cli.daily:main"
 futures-roll-organize = "futures_roll_analysis.cli.organize:main"

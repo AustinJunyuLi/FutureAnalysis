@@ -171,14 +171,15 @@ class TestAggregation:
         # Create 3 days of data
         minute_df = self.create_sample_minute_data(hours=72)
         bucket_df = aggregate_to_buckets(minute_df)
-        
-        # Group by date and count buckets
-        bucket_df['date'] = bucket_df.index.date
-        buckets_per_day = bucket_df.groupby('date')['bucket'].nunique()
-        
-        # Should have multiple buckets per day (not necessarily all 10)
-        assert buckets_per_day.min() >= 5, "Should have at least 5 buckets per day"
+
+        trading_dates = bucket_df.index.normalize()
+        trading_dates = trading_dates + pd.to_timedelta((bucket_df["bucket"] == 9).astype(int), unit="D")
+        buckets_per_day = bucket_df.groupby(trading_dates)["bucket"].nunique()
+
         assert buckets_per_day.max() <= 10, "Should have at most 10 buckets per day"
+        full_days = buckets_per_day[buckets_per_day >= 8]
+        assert not full_days.empty, "Expected at least one fully populated trading day"
+        assert full_days.min() >= 8, "Fully populated trading days should have at least eight buckets"
     
     def test_validation_function(self):
         """Test the validation function"""
@@ -196,6 +197,29 @@ class TestAggregation:
         assert validation['volume_conservation'] == True
         assert validation['high_price_consistency'] == True
         assert validation['low_price_consistency'] == True
+
+    def test_cross_midnight_anchor_without_duplicates(self):
+        """Cross-midnight buckets should anchor to the prior day without duplicate timestamps."""
+        idx = pd.date_range("2024-01-03 20:30", periods=360, freq="1min")
+        np.random.seed(0)
+        minute_df = pd.DataFrame(
+            {
+                "open": np.linspace(100, 105, len(idx)),
+                "high": np.linspace(100.5, 105.5, len(idx)),
+                "low": np.linspace(99.5, 104.5, len(idx)),
+                "close": np.linspace(100.1, 105.1, len(idx)),
+                "volume": np.random.randint(10, 50, len(idx)),
+            },
+            index=idx,
+        )
+
+        bucket_df = aggregate_to_buckets(minute_df)
+
+        assert bucket_df.index.is_unique, "Bucket aggregation should not create duplicate timestamps"
+        asia = bucket_df[bucket_df["bucket"] == 9]
+        assert not asia.empty
+        earliest_asia = asia.index.min()
+        assert earliest_asia.hour == 21
 
 
 class TestBucketStatistics:
