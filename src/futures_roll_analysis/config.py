@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import os
 from typing import Any, Dict, Iterable, Optional
 
 import yaml
@@ -16,7 +17,9 @@ class Settings:
     data: Dict[str, Any]
     data_quality: Dict[str, Any]
     roll_rules: Dict[str, Any]
+    strip_analysis: Dict[str, Any]
     spread: Dict[str, Any]
+    business_days: Dict[str, Any]
     output_dir: Path
     metadata_path: Path
 
@@ -24,6 +27,8 @@ class Settings:
 def _resolve_path(value: Optional[str], base_path: Path) -> Optional[Path]:
     if value is None:
         return None
+    # Expand environment variables for portability
+    value = os.path.expandvars(value)
     path = Path(value)
     if not path.is_absolute():
         path = (base_path / path).resolve()
@@ -63,6 +68,22 @@ def load_settings(
     roll_rules = raw.get("roll_rules", {})
     dq_cfg = raw.get("data_quality", {})
 
+    strip_analysis_cfg = raw.get("strip_analysis", {}) or {}
+    strip_analysis_cfg.setdefault("enabled", True)
+    strip_analysis_cfg.setdefault("strip_length", 12)
+    strip_analysis_cfg.setdefault("dominance_ratio_threshold", 2.0)
+    strip_analysis_cfg.setdefault("expiry_window_business_days", 18)
+    strip_analysis_cfg.setdefault("filter_expiry_dominance", True)
+
+    business_days_cfg = raw.get("business_days", {})
+    # Always enabled; ignore any 'enabled' field if present
+    if "enabled" in business_days_cfg:
+        business_days_cfg.pop("enabled", None)
+    business_days_cfg.setdefault("align_events", "none")
+    if "calendar_paths" in business_days_cfg:
+        resolved_paths = [_resolve_path(p, base_dir) for p in business_days_cfg["calendar_paths"]]
+        business_days_cfg["calendar_paths"] = [p for p in resolved_paths if p is not None]
+
     metadata_path = _resolve_path(raw.get("metadata", {}).get("contracts"), base_dir)
     if metadata_path is None:
         metadata_path = _resolve_path(
@@ -77,13 +98,17 @@ def load_settings(
     if data_root is not None:
         data_cfg["minute_root"] = data_root
 
+    _validate_settings(products, data_cfg, spread_cfg, business_days_cfg)
+
     return Settings(
         products=products,
         bucket_config=bucket_config,
         data=data_cfg,
         data_quality=dq_cfg,
         roll_rules=roll_rules,
+        strip_analysis=strip_analysis_cfg,
         spread=spread_cfg,
+        business_days=business_days_cfg,
         output_dir=output_dir,
         metadata_path=metadata_path,
     )
@@ -101,3 +126,35 @@ def _merge_dicts(base: Dict[str, Any], overrides: Dict[str, Any]) -> Dict[str, A
         else:
             result[key] = value
     return result
+
+
+def _validate_settings(products: Iterable[str], data_cfg: Dict[str, Any], spread_cfg: Dict[str, Any], business_days_cfg: Dict[str, Any]) -> None:
+    # Basic validations with helpful messages
+    tz = data_cfg.get("timezone")
+    if not isinstance(tz, str):
+        raise ValueError("data.timezone must be a string timezone name")
+
+    method = spread_cfg.get("method", "zscore").lower()
+    if method not in {"zscore", "abs", "combined"}:
+        raise ValueError("spread.method must be one of: zscore, abs, combined")
+    # No noise-reduction features (winsorization) in this iteration
+
+    align = business_days_cfg.get("align_events", "none")
+    if align not in {"none", "shift_next", "drop_closed"}:
+        raise ValueError("business_days.align_events must be one of: none, shift_next, drop_closed")
+
+    vt = business_days_cfg.get("volume_threshold", {}) or {}
+    if vt:
+        method_vt = vt.get("method", "dynamic")
+        if method_vt not in {"dynamic", "fixed"}:
+            raise ValueError("business_days.volume_threshold.method must be 'dynamic' or 'fixed'")
+        ranges = vt.get("dynamic_ranges")
+        if method_vt == "dynamic":
+            if not isinstance(ranges, list) or not ranges:
+                raise ValueError("business_days.volume_threshold.dynamic_ranges must be a non-empty list")
+            last = -1
+            for r in ranges:
+                md = int(r.get("max_days", -1))
+                if md <= last:
+                    raise ValueError("dynamic_ranges must be strictly increasing by max_days")
+                last = md

@@ -7,7 +7,10 @@ from typing import Dict, Iterable, Iterator, List, Optional, Pattern, Sequence, 
 import numpy as np
 import pandas as pd
 
+import logging
 from .buckets import aggregate_to_buckets
+
+LOGGER = logging.getLogger(__name__)
 
 
 DEFAULT_MONTH_CODES: Dict[str, int] = {
@@ -29,7 +32,7 @@ DEFAULT_MONTH_CODES: Dict[str, int] = {
 def build_contract_regex(root_symbol: str) -> Pattern[str]:
     """Build a regex matcher for contract filenames belonging to a given root symbol."""
     return re.compile(
-        rf"{re.escape(root_symbol)}_?([FGHJKMNQUVXZ])_?(\d{{1,2}}|\d{{4}})",
+        rf"{re.escape(root_symbol)}_?([FGHJKMNQUVXZ])_?(\d{{4}}|\d{{1,2}})",
         flags=re.IGNORECASE,
     )
 
@@ -48,7 +51,7 @@ def normalize_contract_code(
     month_code = match.group(1).upper()
     year_fragment = match.group(2)
 
-    if len(year_fragment) == 2:
+    if len(year_fragment) <= 2:
         year = int(year_fragment)
         year = 2000 + year if year <= 79 else 1900 + year
     else:
@@ -203,7 +206,7 @@ def build_contract_frames(
             minutes = load_minutes(path)
             aggregated = aggregator(minutes, tz=tz)
         except Exception as exc:  # pragma: no cover - defensive logging hook
-            print(f"Warning: failed to process {path}: {exc}")
+            LOGGER.warning("Failed to process %s: %s", path, exc)
             continue
 
         if contract in grouped:

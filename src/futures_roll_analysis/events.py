@@ -5,6 +5,8 @@ from typing import Iterable, List, Optional, Sequence
 import numpy as np
 import pandas as pd
 
+from .trading_days import business_day_gaps as _business_day_gaps
+
 
 def detect_spread_events(
     spread: pd.Series,
@@ -64,31 +66,146 @@ def detect_spread_events(
     return trigger.rename("spread_widening")
 
 
-def summarize_events(events: pd.Series, spread: pd.Series) -> pd.DataFrame:
-    """Summarise widening events with spread deltas and spacing."""
+def detect_multi_spread_events(
+    spreads_df: pd.DataFrame,
+    *,
+    method: str = "zscore",
+    window: int = 30,
+    z_threshold: float = 1.5,
+    abs_min: Optional[float] = None,
+    min_periods: Optional[int] = None,
+    cool_down: Optional[object] = None,
+) -> pd.DataFrame:
+    """
+    Detect widening events across multiple spread series.
+
+    Applies detect_spread_events() to each column in the spreads DataFrame.
+
+    Parameters
+    ----------
+    spreads_df:
+        DataFrame with spread columns (e.g., S1, S2, ..., S11).
+    method:
+        ``"zscore"``, ``"abs"``, or ``"combined"``.
+    window:
+        Rolling window size (in periods) for z-score calculation.
+    z_threshold:
+        Z-score threshold for detection.
+    abs_min:
+        Minimum absolute spread change required for an event.
+    min_periods:
+        Minimum periods for rolling window calculations.
+    cool_down:
+        Optional cool-down constraint. Accepts an ``int`` (periods) or ``pd.Timedelta``.
+
+    Returns
+    -------
+    DataFrame with boolean event columns (e.g., S1_events, S2_events, ..., S11_events).
+    """
+    result_dict = {}
+
+    for col in spreads_df.columns:
+        spread_series = spreads_df[col]
+        events = detect_spread_events(
+            spread_series,
+            method=method,
+            window=window,
+            z_threshold=z_threshold,
+            abs_min=abs_min,
+            min_periods=min_periods,
+            cool_down=cool_down,
+        )
+        result_dict[f"{col}_events"] = events
+
+    result = pd.DataFrame(result_dict, index=spreads_df.index)
+    return result
+
+
+def align_events_to_business_days(
+    events: pd.Series,
+    business_days: Optional[pd.DatetimeIndex],
+    policy: str = "none",
+) -> pd.Series:
+    """
+    Optionally align event timestamps to business days.
+
+    Policies
+    --------
+    - "none": return as-is.
+    - "shift_next": if event falls on a non-business day, move it to the next business day.
+    - "drop_closed": drop events on non-business days.
+    """
+    if not policy or policy == "none" or business_days is None or len(business_days) == 0:
+        return events
+    biz = pd.DatetimeIndex(business_days).normalize().drop_duplicates().sort_values()
+    biz_set = set(biz)
+    out = events.copy()
+    if policy == "drop_closed":
+        mask = out.index.normalize().isin(biz_set)
+        return out[mask]
+    if policy == "shift_next":
+        new_index = []
+        for ts in out.index:
+            d = ts.normalize()
+            if d in biz_set:
+                new_index.append(ts)
+                continue
+            # find next business date >= d
+            pos = biz.searchsorted(d)
+            if pos < len(biz):
+                new_index.append(biz[pos].replace(hour=ts.hour, minute=ts.minute, second=ts.second))
+            else:
+                # no next biz day; keep original
+                new_index.append(ts)
+        out.index = pd.DatetimeIndex(new_index)
+        return out
+    raise ValueError(f"Unknown alignment policy: {policy}")
+
+
+def summarize_events(
+    events: pd.Series,
+    spread: pd.Series,
+    business_days: Optional[pd.DatetimeIndex] = None,
+) -> pd.DataFrame:
+    """
+    Summarise widening events with spread deltas and business-day spacing only.
+
+    Parameters
+    ----------
+    events:
+        Boolean series of events.
+    spread:
+        Calendar spread series.
+    business_days:
+        Optional DatetimeIndex of business days for computing business day gaps.
+
+    Returns
+    -------
+    DataFrame with event summary including business-day gaps.
+    """
     event_dates = events[events].index
     if len(event_dates) == 0:
-        return pd.DataFrame(columns=["date", "spread_before", "spread_after", "change", "days_since_last"])
+        base_cols = ["date", "spread_before", "spread_after", "change", "business_days_since_last"]
+        return pd.DataFrame(columns=base_cols)
 
     rows: List[dict] = []
-    prev_date = None
+    biz_gap_series = _business_day_gaps(events, business_days) if business_days is not None else None
+    biz_iter = iter(biz_gap_series) if biz_gap_series is not None else None
+
     for date in event_dates:
         loc = spread.index.get_loc(date)
         before = spread.iloc[loc - 1] if loc > 0 else np.nan
         after = spread.iloc[loc]
         change = after - before
-        days_since = (date - prev_date).days if prev_date is not None else np.nan
 
-        rows.append(
-            {
-                "date": date,
-                "spread_before": before,
-                "spread_after": after,
-                "change": change,
-                "days_since_last": days_since,
-            }
-        )
-        prev_date = date
+        row = {
+            "date": date,
+            "spread_before": before,
+            "spread_after": after,
+            "change": change,
+            "business_days_since_last": (next(biz_iter) if biz_iter is not None else np.nan),
+        }
+        rows.append(row)
 
     return pd.DataFrame(rows)
 

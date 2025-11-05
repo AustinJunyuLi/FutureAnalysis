@@ -201,11 +201,12 @@ def _compute_trading_dates(index: pd.DatetimeIndex, bucket_ids: Optional[pd.Seri
     Asia session buckets (id 9) start the next trading day at 21:00 prior day,
     so they are attributed to the following calendar date.
     """
-    normalized = index.tz_convert(None) if index.tz is not None else index
+    # Preserve wall-clock (local) dates/hours for mapping
+    normalized = index.tz_localize(None) if index.tz is not None else index
     normalized = normalized.normalize()
     if bucket_ids is not None:
         shift = bucket_ids.eq(9).astype(int)
     else:
-        hours = index.tz_convert(None).hour if index.tz is not None else index.hour
+        hours = index.tz_localize(None).hour if index.tz is not None else index.hour
         shift = (hours >= 21).astype(int)
     return normalized + pd.to_timedelta(shift, unit="D")

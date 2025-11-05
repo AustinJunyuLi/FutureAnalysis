@@ -41,11 +41,41 @@ roll_rules:
   confirm_days: 1
   use_open_interest: false
 
+strip_analysis:
+  enabled: true
+  strip_length: 12
+  dominance_ratio_threshold: 2.0
+  expiry_window_business_days: 18
+  filter_expiry_dominance: true
+
 spread:
   method: "zscore"           # Detection method: "zscore", "abs", or "combined"
   window_buckets: 20         # Rolling window in buckets (~2 days at 10 buckets/day)
   z_threshold: 1.5           # Z-score threshold (1.5 gives ~5% detection rate)
   abs_min: null              # Minimum absolute change (set to 0.020 to filter noise if needed)
   cool_down_hours: 3.0       # Time-based cool-down between events (hours)
+
+business_days:
+  enabled: false             # Master switch for business day calculations
+  calendar_paths:            # List of calendar files (hierarchical override)
+    - "../metadata/calendars/cme_globex_holidays.csv"
+  calendar_hierarchy: "override"  # "override" | "union" | "intersection"
+  min_total_buckets: 6       # Minimum total buckets per day for data guard
+  min_us_buckets: 2          # Minimum US session buckets per day
+  partial_day_min_buckets: 4 # Minimum buckets for partial trading days
+  volume_threshold:
+    method: "dynamic"        # "dynamic" | "fixed"
+    fixed_percentile: 0.10   # Used when method="fixed"
+    dynamic_ranges:          # Used when method="dynamic"
+      - max_days: 5
+        percentile: 0.30     # Delivery month (very near expiry)
+      - max_days: 30
+        percentile: 0.20     # Near expiry
+      - max_days: 60
+        percentile: 0.10     # Active roll period
+      - max_days: 999
+        percentile: 0.05     # Far contracts
+  near_expiry_relax: 5       # Days to expiry for relaxed coverage requirements
+  fallback_policy: "calendar_only"  # "calendar_only" | "union_with_data" | "intersection_strict"
 
 output_dir: "../outputs"

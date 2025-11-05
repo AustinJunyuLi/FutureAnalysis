@@ -40,6 +40,9 @@ def analyze_command(args: argparse.Namespace) -> int:
     if args.output_dir:
         overrides["output_dir"] = args.output_dir
     
+    if hasattr(args, "calendar") and args.calendar:
+        overrides.setdefault("business_days", {})["calendar_paths"] = [args.calendar]
+    
     # Load settings with overrides
     settings = load_settings(Path(args.settings), overrides=overrides or None)
     
@@ -170,6 +173,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         help="Logging level (default: INFO)"
+    )
+    analyze_parser.add_argument(
+        "--calendar",
+        help="Path to trading calendar CSV file (overrides config). Use for custom holiday schedules."
     )
     
     # Organize command

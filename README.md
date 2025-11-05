@@ -74,6 +74,60 @@ futures-roll analyze --mode hourly --max-files 5 --output-dir outputs/test
 - `--inventory`: Path for inventory CSV
 - `--dry-run`: Preview without moving files
 
+### Business Days Feature (Optional)
+
+The package includes sophisticated business day calculations for more accurate event spacing analysis. This feature uses official CME/Globex trading calendars combined with data activity guards.
+
+Business days are always enabled. To use a custom calendar, pass `--calendar`:
+```bash
+futures-roll analyze --mode hourly \
+  --settings config/settings.yaml \
+  --calendar metadata/calendars/cme_globex_holidays.csv
+```
+
+**Enable via Configuration (`config/settings.yaml`):**
+```yaml
+business_days:
+  enabled: true
+  calendar_paths:
+    - "../metadata/calendars/cme_globex_holidays.csv"
+  calendar_hierarchy: "override"
+  min_total_buckets: 6
+  min_us_buckets: 2
+  volume_threshold:
+    method: "dynamic"
+    dynamic_ranges:
+      - {max_days: 5, percentile: 0.30}    # Delivery month
+      - {max_days: 30, percentile: 0.20}   # Near expiry
+      - {max_days: 60, percentile: 0.10}   # Active roll
+      - {max_days: 999, percentile: 0.05}  # Far contracts
+  near_expiry_relax: 5
+  fallback_policy: "calendar_only"
+  align_events: "none"        # none | shift_next | drop_closed
+```
+
+**Key Features:**
+- **Trading Calendar**: Uses official CME/Globex holiday schedules (2015-2025)
+- **Data Guards**: Validates trading activity with coverage and volume thresholds
+- **Dynamic Thresholds**: Volume requirements adapt to contract lifecycle
+- **Partial Days**: Handles early close sessions (Thanksgiving, Christmas Eve)
+- **Backward Compatible**: Disabled by default; existing outputs unchanged
+
+### Calendar Linting
+
+Validate one or more calendar CSVs and emit a JSON report:
+
+```bash
+futures-roll-cal-lint metadata/calendars/cme_globex_holidays.csv --json outputs/calendar_lint.json
+```
+
+### Event Detection Options
+
+- `business_days.align_events`: Shift or drop events that land on closed days when auditing.
+
+**Output:**  
+Event summaries include business-day gaps only (`business_days_since_last`).
+
 ## Project Structure
 
 ```
@@ -81,12 +135,14 @@ futures_individual_contracts_1min/
 ├── src/futures_roll_analysis/
 │   ├── analysis.py         # High-level analysis runners
 │   ├── buckets.py          # Bucket definitions and aggregation
-│   ├── cli.py              # Unified CLI entry point
+│   ├── unified_cli.py      # Unified CLI entry point
+│   ├── cli/                # Legacy subcommands (hourly, daily, organize)
 │   ├── config.py           # Settings loader
 │   ├── events.py           # Spread event detection
 │   ├── ingest.py           # Data ingestion and normalization
 │   ├── panel.py            # Panel assembly from contracts
 │   ├── quality.py          # Data quality filtering
+│   ├── trading_days.py     # Business day calendar utilities
 │   └── rolls.py            # Roll detection utilities
 ├── tests/                   # Pytest test suites
 ├── config/
@@ -118,11 +174,13 @@ futures_individual_contracts_1min/
 - **Roll Detection**: Vectorized front/next contract identification
 - **Spread Analysis**: Calendar spread computation with event detection
 - **Event Detection**: Z-score and absolute threshold methods with cool-down periods
+- **Strip Diagnostics**: Full F1–F12 strip with S1–S11 spreads, dominance metrics, and expiry-window filtering to distinguish genuine rolling from expiry mechanics
 
 ### Output Files
 - **Panels**: Wide-format DataFrames with all contracts (Parquet/CSV)
 - **Roll Signals**: Time series of spreads, widening events, liquidity rolls
-- **Analysis Summaries**: Bucket statistics, preference scores, transition matrices
+- **Analysis Summaries**: Bucket statistics, preference scores, transition matrices,
+  and hourly/daily widening summaries (calendar and business day gaps when enabled)
 - **Quality Reports**: Filtering metrics and contract status
 
 ## Testing

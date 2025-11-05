@@ -36,7 +36,7 @@ env/
 
 # IDE - VSCode
 .vscode/*
-!.vscode/settings.json
+.vscode/settings.json
 !.vscode/tasks.json
 !.vscode/launch.json
 !.vscode/extensions.json
@@ -51,9 +51,16 @@ outputs/*
 !outputs/.gitkeep
 organized_data/*
 !organized_data/.gitkeep
+raw_data/
 *.parquet
-*.csv
-*.log
+
+# Exclude CSV/log from outputs, but allow metadata
+/outputs/*.csv
+/data_inventory.csv
+
+# Allow metadata CSVs
+!metadata/**/*.csv
+!metadata/*.csv
 
 # OS Files
 .DS_Store
@@ -64,3 +71,25 @@ Thumbs.db
 # Project specific
 data_inventory.csv
 /tmp/
+
+# LaTeX build artifacts
+*.aux
+*.out
+*.toc
+*.log
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.synctex.gz
+
+# Private correspondence
+emails/
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# MCP config (optional - uncomment if it contains secrets)
+# .mcp.json

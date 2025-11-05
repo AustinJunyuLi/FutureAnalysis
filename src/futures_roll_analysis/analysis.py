@@ -8,8 +8,12 @@ import numpy as np
 import pandas as pd
 
 from . import config as cfg
+from . import trading_days
+from . import spreads as strip_tools
 from .events import (
     detect_spread_events,
+    detect_multi_spread_events,
+    align_events_to_business_days,
     preference_scores,
     summarize_bucket_events,
     summarize_events,
@@ -22,8 +26,11 @@ from .rolls import (
     build_expiry_map,
     compute_liquidity_signal,
     compute_spread,
+    compute_multi_spreads,
     identify_front_next,
+    identify_front_to_f12,
 )
+from . import multi_spread_analysis
 
 LOGGER = logging.getLogger(__name__)
 
@@ -79,10 +86,120 @@ def run_bucket_analysis(
         cool_down=cool_down,
     )
 
+    strip_cfg = settings.strip_analysis or {}
+
     volume_series = _front_volume_series(panel, front_next)
     bucket_ids = pd.to_numeric(panel[("meta", "bucket")], errors="coerce").astype("Int64")
     labels = panel[("meta", "bucket_label")]
     sessions = panel[("meta", "session")]
+    calendar = None
+    calendar_paths = settings.business_days.get("calendar_paths", [])
+    if calendar_paths:
+        try:
+            calendar = trading_days.load_calendar(
+                calendar_paths,
+                hierarchy=settings.business_days.get("calendar_hierarchy", "override"),
+            )
+        except Exception as exc:
+            LOGGER.warning("Failed to load trading calendar: %s", exc)
+            calendar = None
+
+    # Multi-spread analysis for supervisor's test
+    LOGGER.info("Computing multi-spread analysis (F1-F12, S1-S11)...")
+    contract_chain = identify_front_to_f12(
+        panel,
+        expiry_map,
+        max_contracts=12,
+        price_field=settings.data.get("price_field", "close"),
+    )
+    LOGGER.info(f"Contract chain identified: {len(contract_chain)} periods × {len(contract_chain.columns)} contracts")
+
+    multi_spreads = compute_multi_spreads(
+        panel,
+        contract_chain,
+        price_field=settings.data.get("price_field", "close"),
+    )
+    LOGGER.info(f"Multi-spreads computed: {multi_spreads.shape}")
+
+    multi_events = detect_multi_spread_events(
+        multi_spreads,
+        method=spread_cfg.get("method", "zscore"),
+        window=spread_cfg.get("window_buckets", spread_cfg.get("window", 30)),
+        z_threshold=spread_cfg.get("z_threshold", 1.5),
+        abs_min=spread_cfg.get("abs_min"),
+        cool_down=cool_down,
+    )
+    LOGGER.info(f"Multi-spread events detected: {multi_events.sum().sum()} total events across all spreads")
+
+    # Comparative analysis
+    spread_correlations = multi_spread_analysis.compute_spread_correlations(multi_spreads)
+    spread_comparison = multi_spread_analysis.compare_spread_signals(multi_spreads, multi_events)
+    spread_timing = multi_spread_analysis.analyze_spread_timing(
+        multi_spreads,
+        multi_events,
+        contract_chain,
+        expiry_map,
+    )
+    timing_summary = multi_spread_analysis.summarize_timing_by_spread(spread_timing)
+    spread_changes = multi_spread_analysis.analyze_spread_changes(multi_spreads)
+
+    # Cross-spread magnitude comparison (supervisor's specific request)
+    LOGGER.info("Computing cross-spread magnitude comparison (S1 vs S2-S11)...")
+    magnitude_comp = multi_spread_analysis.compare_spread_magnitudes(multi_spreads)
+    s1_dominance_by_cycle = multi_spread_analysis.analyze_s1_dominance_by_expiry_cycle(
+        magnitude_comp, contract_chain, expiry_map
+    )
+    cross_spread_summary = multi_spread_analysis.summarize_cross_spread_patterns(s1_dominance_by_cycle)
+
+    LOGGER.info(f"S1 dominance analysis complete: {magnitude_comp['s1_dominates'].sum()} periods where S1 > 2x median(S2-S11)")
+    LOGGER.info(f"S1 events: {multi_events['S1_events'].sum()}, "
+                f"S2 events: {multi_events['S2_events'].sum()}, "
+                f"S3 events: {multi_events['S3_events'].sum()}")
+
+    strip_diagnostics = pd.DataFrame()
+    if strip_cfg.get("enabled", True):
+        strip_diagnostics = strip_tools.summarize_strip_dominance(
+            magnitude_comp,
+            contract_chain,
+            expiry_map,
+            calendar=calendar,
+            dominance_threshold=strip_cfg.get("dominance_ratio_threshold", 2.0),
+            expiry_window_bd=strip_cfg.get("expiry_window_business_days", 18),
+        )
+        if strip_cfg.get("filter_expiry_dominance", True):
+            widened_before = int(widening.sum())
+            widening, removed = strip_tools.filter_expiry_dominance_events(widening, strip_diagnostics)
+            if removed:
+                LOGGER.info("Filtered %s widening events classified as expiry dominance (from %s)", removed, widened_before)
+
+    # Always compute business days (business-day-only pipeline)
+    business_days_index = None
+    business_days_audit = None
+    if calendar is not None:
+        try:
+            result = trading_days.compute_business_days(
+                panel,
+                front_next,
+                calendar,
+                expiry_map=expiry_map,
+                min_total_buckets=settings.business_days.get("min_total_buckets", 6),
+                min_us_buckets=settings.business_days.get("min_us_buckets", 2),
+                volume_threshold_config=settings.business_days.get("volume_threshold"),
+                near_expiry_relax=settings.business_days.get("near_expiry_relax", 5),
+                partial_day_min_buckets=settings.business_days.get("partial_day_min_buckets", 4),
+                fallback_policy=settings.business_days.get("fallback_policy", "calendar_only"),
+                bucket_ids=bucket_ids,
+                return_audit=True,
+            )
+            business_days_index, business_days_audit = result
+            LOGGER.info(f"Business days computed: {len(business_days_index)} days")
+        except Exception as e:
+            LOGGER.warning(f"Business day computation failed: {e}.")
+
+    # Optional alignment of events to business days for summary/reporting
+    align_policy = settings.business_days.get("align_events", "none")
+    if align_policy and business_days_index is not None:
+        widening = align_events_to_business_days(widening, business_days_index, policy=align_policy)
 
     bucket_summary = summarize_bucket_events(
         widening,
@@ -93,6 +210,7 @@ def run_bucket_analysis(
     )
     preference = preference_scores(widening, volume_series, bucket_ids)
     transitions = transition_matrix(widening, bucket_ids)
+    event_summary = summarize_events(widening, spread, business_days=business_days_index)
 
     out_dir = (output_dir or settings.output_dir).resolve()
     panels_dir = out_dir / "panels"
@@ -109,6 +227,29 @@ def run_bucket_analysis(
     _write_csv(bucket_summary, analysis_dir / "bucket_summary.csv", index=False)
     _write_csv(preference, analysis_dir / "preference_scores.csv", header=True)
     _write_csv(transitions, analysis_dir / "transition_matrix.csv")
+    if business_days_audit is not None:
+        _write_csv(business_days_audit, analysis_dir / "business_days_audit_hourly.csv", index=False)
+    _write_csv(event_summary, analysis_dir / "hourly_widening_summary.csv", index=False)
+
+    # Write multi-spread analysis outputs
+    _write_csv(multi_spreads, signals_dir / "multi_spreads.csv", header=True)
+    _write_csv(multi_events, signals_dir / "multi_spread_events.csv", header=True)
+    _write_csv(spread_correlations, analysis_dir / "spread_correlations.csv")
+    _write_csv(spread_comparison, analysis_dir / "spread_signal_comparison.csv", index=False)
+    _write_csv(spread_timing, analysis_dir / "spread_event_timing.csv", index=False)
+    _write_csv(timing_summary, analysis_dir / "spread_timing_summary.csv", index=False)
+    _write_csv(spread_changes, analysis_dir / "spread_change_statistics.csv", index=False)
+
+    # Write cross-spread magnitude comparison outputs
+    _write_csv(magnitude_comp, analysis_dir / "s1_vs_others_magnitude.csv", header=True)
+    _write_csv(s1_dominance_by_cycle, analysis_dir / "s1_dominance_by_cycle.csv", index=False)
+    _write_csv(cross_spread_summary, analysis_dir / "cross_spread_summary.csv", index=False)
+    if not strip_diagnostics.empty:
+        _write_csv(strip_diagnostics, analysis_dir / "strip_spread_diagnostics.csv", index=False)
+
+    LOGGER.info("Multi-spread analysis outputs written successfully")
+
+    _write_run_settings(settings, analysis_dir / "run_settings.json")
     LOGGER.info(
         "Bucket analysis complete: rows=%s events=%s",
         len(panel),
@@ -122,6 +263,7 @@ def run_bucket_analysis(
         "bucket_summary": analysis_dir / "bucket_summary.csv",
         "preference_scores": analysis_dir / "preference_scores.csv",
         "transition_matrix": analysis_dir / "transition_matrix.csv",
+        "event_summary": analysis_dir / "hourly_widening_summary.csv",
     }
 
 
@@ -181,7 +323,46 @@ def run_daily_analysis(
         confirm=settings.roll_rules.get("confirm_days", 1),
     )
 
-    summary = summarize_events(widening, spread)
+    calendar = None
+    calendar_paths = settings.business_days.get("calendar_paths", [])
+    if calendar_paths:
+        try:
+            calendar = trading_days.load_calendar(
+                calendar_paths,
+                hierarchy=settings.business_days.get("calendar_hierarchy", "override"),
+            )
+        except Exception as exc:
+            LOGGER.warning("Failed to load trading calendar: %s", exc)
+            calendar = None
+
+    business_days_index = None
+    business_days_audit = None
+    if calendar is not None:
+        try:
+            result = trading_days.compute_business_days(
+                panel,
+                front_next,
+                calendar,
+                expiry_map=expiry_map,
+                min_total_buckets=settings.business_days.get("min_total_buckets", 6),
+                min_us_buckets=settings.business_days.get("min_us_buckets", 2),
+                volume_threshold_config=settings.business_days.get("volume_threshold"),
+                near_expiry_relax=settings.business_days.get("near_expiry_relax", 5),
+                partial_day_min_buckets=settings.business_days.get("partial_day_min_buckets", 4),
+                fallback_policy=settings.business_days.get("fallback_policy", "calendar_only"),
+                bucket_ids=None,
+                return_audit=True,
+            )
+            business_days_index, business_days_audit = result
+            LOGGER.info(f"Business days computed: {len(business_days_index)} days")
+        except Exception as e:
+            LOGGER.warning(f"Business day computation failed: {e}.")
+
+    align_policy = settings.business_days.get("align_events", "none")
+    if align_policy and business_days_index is not None:
+        widening = align_events_to_business_days(widening, business_days_index, policy=align_policy)
+
+    summary = summarize_events(widening, spread, business_days=business_days_index)
 
     out_dir = (output_dir or settings.output_dir).resolve()
     panels_dir = out_dir / "panels"
@@ -199,6 +380,9 @@ def run_daily_analysis(
     _write_csv(spread, signals_dir / "hg_spread_filtered.csv")
     _write_csv(widening, signals_dir / "hg_widening_filtered.csv")
     _write_csv(liquidity, signals_dir / "hg_liquidity_roll_filtered.csv")
+    if business_days_audit is not None:
+        _write_csv(business_days_audit, analysis_dir / "business_days_audit_daily.csv", index=False)
+    _write_run_settings(settings, analysis_dir / "run_settings.json")
 
     LOGGER.info(
         "Daily analysis complete: rows=%s events=%s",
@@ -258,3 +442,16 @@ def _write_parquet(df: pd.DataFrame, path: Path) -> None:
 def _write_csv(obj: pd.DataFrame | pd.Series, path: Path, **kwargs) -> None:
     path.unlink(missing_ok=True)
     obj.to_csv(path, **kwargs)
+
+
+def _write_run_settings(settings: cfg.Settings, path: Path) -> None:
+    import json
+    payload = {
+        "products": list(settings.products),
+        "data": settings.data,
+        "spread": settings.spread,
+        "business_days": {k: v for k, v in settings.business_days.items() if k != "calendar_paths"},
+        "output_dir": str(settings.output_dir),
+        "metadata_path": str(settings.metadata_path),
+    }
+    path.write_text(json.dumps(payload, indent=2, default=str))

@@ -37,24 +37,24 @@ echo ""
 
 # Check critical packages
 echo "📦 Checking packages..."
-python -c "
+python - <<'PY' 2>/dev/null
 import sys
 packages = ['pandas', 'numpy', 'pyarrow', 'yaml', 'pytest']
 missing = []
 for pkg in packages:
     try:
         __import__(pkg)
-        print(f'  ✓ {pkg}')
+        print('  ✓', pkg)
     except ImportError:
         missing.append(pkg)
-        print(f'  ✗ {pkg} (missing)')
+        print('  ✗', pkg, '(missing)')
 
 if missing:
-    print(f'\n⚠️  Missing packages: {', '.join(missing)}')
-    print(f'   Install with: pip install {' '.join(missing)}')
+    print('\n⚠️  Missing packages:', ', '.join(missing))
+    print('   Install with: pip install ' + ' '.join(missing))
 else:
     print('\n✅ All required packages installed!')
-" 2>/dev/null
+PY
 
 echo ""
 echo "🚀 Ready to use! Try these commands:"

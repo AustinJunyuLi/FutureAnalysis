@@ -96,6 +96,89 @@ def identify_front_next(
     return result
 
 
+def identify_front_to_f12(
+    panel: pd.DataFrame,
+    expiry_map: pd.Series,
+    *,
+    max_contracts: int = 12,
+    price_field: str = "close",
+    meta_namespace: str = "meta",
+) -> pd.DataFrame:
+    """
+    Vectorised identification of F1, F2, ..., F_max_contracts for each panel row.
+
+    Extends identify_front_next() to find the nearest `max_contracts` unexpired contracts
+    at each timestamp.
+
+    Parameters
+    ----------
+    panel:
+        DataFrame with MultiIndex columns ``(contract, field)``.
+    expiry_map:
+        Series mapping contracts to expiry ``Timestamp`` objects.
+    max_contracts:
+        Number of contract levels to identify (default 12 for F1...F12).
+    price_field:
+        Column to use for evaluating whether a contract is active (default ``"close"``).
+    meta_namespace:
+        Name of the metadata column namespace inside the panel.
+
+    Returns
+    -------
+    DataFrame with columns ['F1', 'F2', ..., 'F{max_contracts}']
+    """
+    contracts = [
+        contract
+        for contract in panel.columns.get_level_values(0).unique()
+        if contract != meta_namespace
+    ]
+
+    close_df = _extract_field(panel, contracts, price_field)
+    if close_df.empty:
+        raise ValueError("Panel is missing close field data")
+
+    expiry_series = expiry_map.reindex(contracts)
+    if expiry_series.isna().any():
+        missing = expiry_series[expiry_series.isna()].index.tolist()
+        raise ValueError(f"Expiry metadata missing for contracts: {missing}")
+
+    dates = pd.to_datetime(
+        panel.index.get_level_values(0) if isinstance(panel.index, pd.MultiIndex) else panel.index
+    ).normalize()
+
+    close_values = close_df.to_numpy(dtype=float)
+    available = np.isfinite(close_values)
+
+    expiry_array = pd.to_datetime(expiry_series).to_numpy(dtype="datetime64[ns]")
+    expiry_int = expiry_array.astype("datetime64[ns]").astype("int64")
+    date_int = dates.to_numpy(dtype="datetime64[ns]").astype("int64")
+
+    delta = expiry_int.reshape(1, -1) - date_int.reshape(-1, 1)
+    active_mask = available & (delta >= 0)
+
+    delta = delta.astype("float64")
+    delta[~active_mask] = np.inf
+
+    contract_array = np.asarray(contracts, dtype="object")
+    result_dict = {}
+
+    # Iteratively find F1, F2, ..., F_max_contracts
+    delta_working = delta.copy()
+    for i in range(1, max_contracts + 1):
+        contract_idx = delta_working.argmin(axis=1)
+        contract_delta = delta_working[np.arange(len(delta_working)), contract_idx]
+        contract_valid = np.isfinite(contract_delta)
+
+        contract_names = np.where(contract_valid, contract_array[contract_idx], None)
+        result_dict[f"F{i}"] = contract_names
+
+        # Mark selected contracts as unavailable for next iteration
+        delta_working[np.arange(len(delta_working)), contract_idx] = np.inf
+
+    result = pd.DataFrame(result_dict, index=panel.index)
+    return result
+
+
 def compute_spread(
     panel: pd.DataFrame,
     front_next: pd.DataFrame,
@@ -134,6 +217,78 @@ def compute_spread(
 
     spread = pd.Series(next_prices - front_prices, index=panel.index, name=f"spread_{price_field}")
     return spread
+
+
+def compute_multi_spreads(
+    panel: pd.DataFrame,
+    contract_chain: pd.DataFrame,
+    *,
+    price_field: str = "close",
+    meta_namespace: str = "meta",
+) -> pd.DataFrame:
+    """
+    Compute S1, S2, ..., S_n spreads from contract chain.
+
+    Parameters
+    ----------
+    panel:
+        DataFrame with MultiIndex columns ``(contract, field)``.
+    contract_chain:
+        DataFrame with columns ['F1', 'F2', ..., 'F{n}'] from identify_front_to_f12().
+    price_field:
+        Price field to use (default ``"close"``).
+    meta_namespace:
+        Name of the metadata column namespace inside the panel.
+
+    Returns
+    -------
+    DataFrame with columns ['S1', 'S2', ..., 'S{n-1}'] where S_i = F_{i+1} - F_i
+    """
+    contracts = [
+        contract
+        for contract in panel.columns.get_level_values(0).unique()
+        if contract != meta_namespace
+    ]
+    close_df = _extract_field(panel, contracts, price_field)
+    values = close_df.to_numpy(dtype=float)
+
+    contract_index = {contract: idx for idx, contract in enumerate(contracts)}
+
+    # Determine how many contract levels we have
+    f_columns = [col for col in contract_chain.columns if col.startswith('F')]
+    num_contracts = len(f_columns)
+
+    result_dict = {}
+
+    # Compute S_i = F_{i+1} - F_i for i = 1 to num_contracts-1
+    for i in range(1, num_contracts):
+        f_i_col = f"F{i}"
+        f_i_plus_1_col = f"F{i+1}"
+
+        f_i_contracts = contract_chain[f_i_col].to_numpy(dtype=object)
+        f_i_plus_1_contracts = contract_chain[f_i_plus_1_col].to_numpy(dtype=object)
+
+        f_i_indices = np.array([contract_index.get(c, -1) for c in f_i_contracts])
+        f_i_plus_1_indices = np.array([contract_index.get(c, -1) for c in f_i_plus_1_contracts])
+
+        f_i_prices = np.full(len(values), np.nan)
+        f_i_plus_1_prices = np.full(len(values), np.nan)
+
+        valid_f_i = f_i_indices >= 0
+        valid_f_i_plus_1 = f_i_plus_1_indices >= 0
+
+        if valid_f_i.any():
+            row_idx = np.nonzero(valid_f_i)[0]
+            f_i_prices[valid_f_i] = values[row_idx, f_i_indices[valid_f_i]]
+        if valid_f_i_plus_1.any():
+            row_idx = np.nonzero(valid_f_i_plus_1)[0]
+            f_i_plus_1_prices[valid_f_i_plus_1] = values[row_idx, f_i_plus_1_indices[valid_f_i_plus_1]]
+
+        spread = f_i_plus_1_prices - f_i_prices
+        result_dict[f"S{i}"] = spread
+
+    result = pd.DataFrame(result_dict, index=panel.index)
+    return result
 
 
 def compute_liquidity_signal(

@@ -12,7 +12,7 @@ from futures_roll_analysis.panel import assemble_panel
 
 
 def test_bucket_metadata_union():
-    idx = pd.date_range("2024-01-01", periods=2, freq="H")
+    idx = pd.date_range("2024-01-01", periods=2, freq="h")
 
     frames = {
         "HGZ2024": pd.DataFrame(
