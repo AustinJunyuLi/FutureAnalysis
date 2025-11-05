@@ -1,0 +1,49 @@
+# Makefile for LaTeX compilation
+
+.PHONY: all clean analysis view-analysis
+
+all: assets analysis
+
+# Compile analysis report
+assets:
+	@echo "Preparing report assets (figures/tables)..."
+	python ../etf_roll_analysis/scripts/prepare_report_assets.py || echo "Asset prep skipped (ensure outputs exist)."
+
+analysis: analysis_report.pdf
+
+analysis_report.pdf: analysis_report.tex
+	@echo "Compiling analysis report..."
+	pdflatex -interaction=nonstopmode analysis_report.tex
+	@echo "Running second pass for references..."
+	pdflatex -interaction=nonstopmode analysis_report.tex
+	@echo "Analysis report compiled successfully!"
+
+# View PDF (Linux/WSL)
+view-analysis: analysis_report.pdf
+	xdg-open analysis_report.pdf || open analysis_report.pdf
+
+# Legacy aliases
+supervisor: analysis
+view-supervisor: view-analysis
+
+# Clean auxiliary files
+clean:
+	@echo "Cleaning auxiliary files..."
+	rm -f *.aux *.log *.out *.toc *.lof *.lot
+	@echo "Clean complete. PDF files preserved."
+
+# Clean everything including PDFs
+cleanall: clean
+	@echo "Removing PDF files..."
+	rm -f *.pdf
+	@echo "All generated files removed."
+
+# Help target
+help:
+	@echo "Available targets:"
+	@echo "  make all (or just 'make')  - Compile analysis report"
+	@echo "  make analysis              - Compile analysis report"
+	@echo "  make clean                 - Remove auxiliary files, keep PDFs"
+	@echo "  make cleanall              - Remove all generated files including PDFs"
+	@echo "  make view-analysis         - Open analysis report in PDF viewer"
+	@echo "  make help                  - Show this help message"

@@ -1,0 +1,95 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+.eggs/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Testing
+.coverage
+.pytest_cache/
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+.hypothesis/
+
+# Virtual Environments
+venv/
+ENV/
+env/
+.venv
+
+# Jupyter Notebooks
+.ipynb_checkpoints
+*.ipynb
+
+# IDE - VSCode
+.vscode/*
+.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.code-workspace
+
+# IDE - PyCharm
+.idea/
+*.iml
+
+# Data and Outputs (customize as needed)
+outputs/*
+!outputs/.gitkeep
+organized_data/*
+!organized_data/.gitkeep
+raw_data/
+*.parquet
+
+# Exclude CSV/log from outputs, but allow metadata
+/outputs/*.csv
+/data_inventory.csv
+
+# Allow metadata CSVs
+!metadata/**/*.csv
+!metadata/*.csv
+
+# OS Files
+.DS_Store
+Thumbs.db
+*~
+.*.swp
+
+# Project specific
+data_inventory.csv
+/tmp/
+
+# LaTeX build artifacts
+*.aux
+*.out
+*.toc
+*.log
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.synctex.gz
+
+# Private correspondence
+emails/
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# MCP config (optional - uncomment if it contains secrets)
+# .mcp.json

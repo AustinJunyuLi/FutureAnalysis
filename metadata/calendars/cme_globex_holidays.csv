@@ -1,0 +1,150 @@
+# CME Globex Holiday Schedule (2015-2025)
+# Primary Source: CME Group Trading Hours (https://www.cmegroup.com/trading-hours.html)
+# Secondary Source: CME Holiday Notices and SIFMA Recommendations
+# Verification: Cross-referenced with US Federal Holiday Calendar
+# Last Updated: 2024-12-17
+#
+# Column Definitions:
+# - date: Trading date (YYYY-MM-DD)
+# - holiday_name: Official holiday name
+# - session_note: "Closed" = no trading, "Regular" = normal hours, "Early close" = partial day
+# - partial_hours: Trading hours for early close days (CT timezone)
+# - exchanges_affected: Comma-separated list of affected exchanges
+date,holiday_name,session_note,partial_hours,exchanges_affected
+2015-01-01,New Year's Day,Closed,,"CME,ICE,EUREX"
+2015-01-19,Martin Luther King Jr Day,Regular,,CME
+2015-02-16,Presidents Day,Regular,,CME
+2015-04-03,Good Friday,Closed,,"CME,ICE,EUREX"
+2015-05-25,Memorial Day,Closed,,"CME,ICE"
+2015-07-03,Independence Day,Closed,,"CME,ICE"
+2015-09-07,Labor Day,Closed,,"CME,ICE"
+2015-11-26,Thanksgiving,Closed,,"CME,ICE"
+2015-11-27,Day After Thanksgiving,Early close,09:00-13:00,"CME,ICE"
+2015-12-24,Christmas Eve,Early close,09:00-13:00,"CME,ICE,EUREX"
+2015-12-25,Christmas,Closed,,"CME,ICE,EUREX,LME"
+2015-12-31,New Year's Eve,Early close,09:00-13:00,"CME,ICE"
+2016-01-01,New Year's Day,Closed,,"CME,ICE,EUREX"
+2016-01-18,Martin Luther King Jr Day,Regular,,CME
+2016-02-15,Presidents Day,Regular,,CME
+2016-03-25,Good Friday,Closed,,"CME,ICE,EUREX"
+2016-05-30,Memorial Day,Closed,,"CME,ICE"
+2016-07-04,Independence Day,Closed,,"CME,ICE"
+2016-09-05,Labor Day,Closed,,"CME,ICE"
+2016-11-24,Thanksgiving,Closed,,"CME,ICE"
+2016-11-25,Day After Thanksgiving,Early close,09:00-13:00,"CME,ICE"
+2016-12-23,Christmas Eve,Early close,09:00-13:00,"CME,ICE,EUREX"
+2016-12-26,Christmas,Closed,,"CME,ICE,EUREX,LME"
+2016-12-30,New Year's Eve,Early close,09:00-13:00,"CME,ICE"
+2017-01-02,New Year's Day,Closed,,"CME,ICE,EUREX"
+2017-01-16,Martin Luther King Jr Day,Regular,,CME
+2017-02-20,Presidents Day,Regular,,CME
+2017-04-14,Good Friday,Closed,,"CME,ICE,EUREX"
+2017-05-29,Memorial Day,Closed,,"CME,ICE"
+2017-07-04,Independence Day,Closed,,"CME,ICE"
+2017-09-04,Labor Day,Closed,,"CME,ICE"
+2017-11-23,Thanksgiving,Closed,,"CME,ICE"
+2017-11-24,Day After Thanksgiving,Early close,09:00-13:00,"CME,ICE"
+2017-12-22,Christmas Eve,Early close,09:00-13:00,"CME,ICE,EUREX"
+2017-12-25,Christmas,Closed,,"CME,ICE,EUREX,LME"
+2017-12-29,New Year's Eve,Early close,09:00-13:00,"CME,ICE"
+2018-01-01,New Year's Day,Closed,,"CME,ICE,EUREX"
+2018-01-15,Martin Luther King Jr Day,Regular,,CME
+2018-02-19,Presidents Day,Regular,,CME
+2018-03-30,Good Friday,Closed,,"CME,ICE,EUREX"
+2018-05-28,Memorial Day,Closed,,"CME,ICE"
+2018-07-04,Independence Day,Closed,,"CME,ICE"
+2018-09-03,Labor Day,Closed,,"CME,ICE"
+2018-11-22,Thanksgiving,Closed,,"CME,ICE"
+2018-11-23,Day After Thanksgiving,Early close,09:00-13:00,"CME,ICE"
+2018-12-24,Christmas Eve,Early close,09:00-13:00,"CME,ICE,EUREX"
+2018-12-25,Christmas,Closed,,"CME,ICE,EUREX,LME"
+2018-12-31,New Year's Eve,Early close,09:00-13:00,"CME,ICE"
+2019-01-01,New Year's Day,Closed,,"CME,ICE,EUREX"
+2019-01-21,Martin Luther King Jr Day,Regular,,CME
+2019-02-18,Presidents Day,Regular,,CME
+2019-04-19,Good Friday,Closed,,"CME,ICE,EUREX"
+2019-05-27,Memorial Day,Closed,,"CME,ICE"
+2019-07-04,Independence Day,Closed,,"CME,ICE"
+2019-09-02,Labor Day,Closed,,"CME,ICE"
+2019-11-28,Thanksgiving,Closed,,"CME,ICE"
+2019-11-29,Day After Thanksgiving,Early close,09:00-13:00,"CME,ICE"
+2019-12-24,Christmas Eve,Early close,09:00-13:00,"CME,ICE,EUREX"
+2019-12-25,Christmas,Closed,,"CME,ICE,EUREX,LME"
+2019-12-31,New Year's Eve,Early close,09:00-13:00,"CME,ICE"
+2020-01-01,New Year's Day,Closed,,"CME,ICE,EUREX"
+2020-01-20,Martin Luther King Jr Day,Regular,,CME
+2020-02-17,Presidents Day,Regular,,CME
+2020-04-10,Good Friday,Closed,,"CME,ICE,EUREX"
+2020-05-25,Memorial Day,Closed,,"CME,ICE"
+2020-07-03,Independence Day,Closed,,"CME,ICE"
+2020-09-07,Labor Day,Closed,,"CME,ICE"
+2020-11-26,Thanksgiving,Closed,,"CME,ICE"
+2020-11-27,Day After Thanksgiving,Early close,09:00-13:00,"CME,ICE"
+2020-12-24,Christmas Eve,Early close,09:00-13:00,"CME,ICE,EUREX"
+2020-12-25,Christmas,Closed,,"CME,ICE,EUREX,LME"
+2020-12-31,New Year's Eve,Early close,09:00-13:00,"CME,ICE"
+2021-01-01,New Year's Day,Closed,,"CME,ICE,EUREX"
+2021-01-18,Martin Luther King Jr Day,Regular,,CME
+2021-02-15,Presidents Day,Regular,,CME
+2021-04-02,Good Friday,Closed,,"CME,ICE,EUREX"
+2021-05-31,Memorial Day,Closed,,"CME,ICE"
+2021-06-18,Juneteenth,Closed,,"CME,ICE"
+2021-07-05,Independence Day,Closed,,"CME,ICE"
+2021-09-06,Labor Day,Closed,,"CME,ICE"
+2021-11-25,Thanksgiving,Closed,,"CME,ICE"
+2021-11-26,Day After Thanksgiving,Early close,09:00-13:00,"CME,ICE"
+2021-12-24,Christmas Eve,Early close,09:00-13:00,"CME,ICE,EUREX"
+2021-12-27,Christmas,Closed,,"CME,ICE,EUREX,LME"
+2021-12-31,New Year's Eve,Early close,09:00-13:00,"CME,ICE"
+2022-01-03,New Year's Day,Closed,,"CME,ICE,EUREX"
+2022-01-17,Martin Luther King Jr Day,Regular,,CME
+2022-02-21,Presidents Day,Regular,,CME
+2022-04-15,Good Friday,Closed,,"CME,ICE,EUREX"
+2022-05-30,Memorial Day,Closed,,"CME,ICE"
+2022-06-20,Juneteenth,Closed,,"CME,ICE"
+2022-07-04,Independence Day,Closed,,"CME,ICE"
+2022-09-05,Labor Day,Closed,,"CME,ICE"
+2022-11-24,Thanksgiving,Closed,,"CME,ICE"
+2022-11-25,Day After Thanksgiving,Early close,09:00-13:00,"CME,ICE"
+2022-12-23,Christmas Eve,Early close,09:00-13:00,"CME,ICE,EUREX"
+2022-12-26,Christmas,Closed,,"CME,ICE,EUREX,LME"
+2022-12-30,New Year's Eve,Early close,09:00-13:00,"CME,ICE"
+2023-01-02,New Year's Day,Closed,,"CME,ICE,EUREX"
+2023-01-16,Martin Luther King Jr Day,Regular,,CME
+2023-02-20,Presidents Day,Regular,,CME
+2023-04-07,Good Friday,Closed,,"CME,ICE,EUREX"
+2023-05-29,Memorial Day,Closed,,"CME,ICE"
+2023-06-19,Juneteenth,Closed,,"CME,ICE"
+2023-07-04,Independence Day,Closed,,"CME,ICE"
+2023-09-04,Labor Day,Closed,,"CME,ICE"
+2023-11-23,Thanksgiving,Closed,,"CME,ICE"
+2023-11-24,Day After Thanksgiving,Early close,09:00-13:00,"CME,ICE"
+2023-12-22,Christmas Eve,Early close,09:00-13:00,"CME,ICE,EUREX"
+2023-12-25,Christmas,Closed,,"CME,ICE,EUREX,LME"
+2023-12-29,New Year's Eve,Early close,09:00-13:00,"CME,ICE"
+2024-01-01,New Year's Day,Closed,,"CME,ICE,EUREX"
+2024-01-15,Martin Luther King Jr Day,Regular,,CME
+2024-02-19,Presidents Day,Regular,,CME
+2024-03-29,Good Friday,Closed,,"CME,ICE,EUREX"
+2024-05-27,Memorial Day,Closed,,"CME,ICE"
+2024-06-19,Juneteenth,Closed,,"CME,ICE"
+2024-07-04,Independence Day,Closed,,"CME,ICE"
+2024-09-02,Labor Day,Closed,,"CME,ICE"
+2024-11-28,Thanksgiving,Closed,,"CME,ICE"
+2024-11-29,Day After Thanksgiving,Early close,09:00-13:00,"CME,ICE"
+2024-12-24,Christmas Eve,Early close,09:00-13:00,"CME,ICE,EUREX"
+2024-12-25,Christmas,Closed,,"CME,ICE,EUREX,LME"
+2024-12-31,New Year's Eve,Early close,09:00-13:00,"CME,ICE"
+2025-01-01,New Year's Day,Closed,,"CME,ICE,EUREX"
+2025-01-20,Martin Luther King Jr Day,Regular,,CME
+2025-02-17,Presidents Day,Regular,,CME
+2025-04-18,Good Friday,Closed,,"CME,ICE,EUREX"
+2025-05-26,Memorial Day,Closed,,"CME,ICE"
+2025-06-19,Juneteenth,Closed,,"CME,ICE"
+2025-07-04,Independence Day,Closed,,"CME,ICE"
+2025-09-01,Labor Day,Closed,,"CME,ICE"
+2025-11-27,Thanksgiving,Closed,,"CME,ICE"
+2025-11-28,Day After Thanksgiving,Early close,09:00-13:00,"CME,ICE"
+2025-12-24,Christmas Eve,Early close,09:00-13:00,"CME,ICE,EUREX"
+2025-12-25,Christmas,Closed,,"CME,ICE,EUREX,LME"
+2025-12-31,New Year's Eve,Early close,09:00-13:00,"CME,ICE"

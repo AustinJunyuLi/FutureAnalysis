@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "futures-roll-analysis"
+version = "1.1.0"
+description = "Framework for analysing institutional roll patterns in futures markets."
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [{name = "Austin Li"}]
+license = {text = "Internal use only"}
+keywords = ["futures", "roll", "commodities", "quantitative"]
+dependencies = [
+    "pandas>=1.3.0",
+    "numpy>=1.21.0",
+    "pyarrow>=9.0.0",
+    "pyyaml>=5.4.0",
+    "python-dateutil>=2.8.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=6.0.0",
+    "pytest-cov>=2.12.0",
+    "ipython>=7.20.0",
+    "jupyter>=1.0.0",
+]
+viz = [
+    "matplotlib>=3.3.0",
+    "seaborn>=0.11.0",
+]
+
+[project.scripts]
+futures-roll = "futures_roll_analysis.unified_cli:main"
+# Legacy command aliases for backward compatibility
+futures-roll-hourly = "futures_roll_analysis.cli.hourly:main"
+futures-roll-daily = "futures_roll_analysis.cli.daily:main"
+futures-roll-organize = "futures_roll_analysis.cli.organize:main"
+futures-roll-cal-lint = "futures_roll_analysis.calendar_tools:lint_main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+futures_roll_analysis = []
