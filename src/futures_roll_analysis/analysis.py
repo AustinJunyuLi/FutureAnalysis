@@ -29,8 +29,6 @@ from .rolls import (
     compute_multi_spreads,
     identify_front_next,
     identify_front_to_f12,
-    identify_front_next_v2,
-    identify_front_to_f12_v2,
 )
 from . import multi_spread_analysis
 
@@ -66,21 +64,13 @@ def run_bucket_analysis(
     panel = assemble_panel(buckets, metadata, include_bucket_meta=True)
 
     expiry_map = build_expiry_map(metadata)
-    # Label selection mode
-    sel_mode = (settings.selection or {}).get("mode", "expiry_v1")
+
+    # Use deterministic expiry-based labeling
     tz_ex = (settings.time or {}).get("tz_exchange", "America/Chicago")
-    if sel_mode == "expiry_v2":
-        chain = identify_front_to_f12_v2(panel, expiry_map, tz_exchange=tz_ex, max_contracts=12)
-        # Construct front/next from chain
-        front_next = chain.loc[:, ["F1", "F2"]].rename(columns={"F1": "front_contract", "F2": "next_contract"})
-    else:
-        front_next = identify_front_next(panel, expiry_map, price_field=settings.data.get("price_field", "close"))
-        chain = identify_front_to_f12(
-            panel,
-            expiry_map,
-            max_contracts=12,
-            price_field=settings.data.get("price_field", "close"),
-        )
+    chain = identify_front_to_f12(panel, expiry_map, tz_exchange=tz_ex, max_contracts=12)
+    # Construct front/next from chain
+    front_next = chain.loc[:, ["F1", "F2"]].rename(columns={"F1": "front_contract", "F2": "next_contract"})
+
     panel[("meta", "front_contract")] = front_next["front_contract"].values
     panel[("meta", "next_contract")] = front_next["next_contract"].values
 
@@ -108,17 +98,25 @@ def run_bucket_analysis(
     bucket_ids = pd.to_numeric(panel[("meta", "bucket")], errors="coerce").astype("Int64")
     labels = panel[("meta", "bucket_label")]
     sessions = panel[("meta", "session")]
-    calendar = None
+
+    # Strict calendar requirement: fail fast if calendar loading fails
     calendar_paths = settings.business_days.get("calendar_paths", [])
-    if calendar_paths:
-        try:
-            calendar = trading_days.load_calendar(
-                calendar_paths,
-                hierarchy=settings.business_days.get("calendar_hierarchy", "override"),
-            )
-        except Exception as exc:
-            LOGGER.warning("Failed to load trading calendar: %s", exc)
-            calendar = None
+    if not calendar_paths:
+        raise ValueError(
+            "business_days.calendar_paths is required. "
+            "Please provide a trading calendar in settings."
+        )
+
+    try:
+        calendar = trading_days.load_calendar(
+            calendar_paths,
+            hierarchy=settings.business_days.get("calendar_hierarchy", "override"),
+        )
+    except Exception as exc:
+        raise RuntimeError(
+            f"Failed to load trading calendar from {calendar_paths}: {exc}\n"
+            "Please ensure the calendar file exists and is properly formatted."
+        ) from exc
 
     # Multi-spread analysis for supervisor's test
     LOGGER.info("Computing multi-spread analysis (F1-F12, S1-S11)...")
@@ -252,12 +250,11 @@ def run_bucket_analysis(
     _write_csv(timing_summary, analysis_dir / "spread_timing_summary.csv", index=False)
     _write_csv(spread_changes, analysis_dir / "spread_change_statistics.csv", index=False)
 
-    # Optional: write switch log when using deterministic labels
-    if sel_mode == "expiry_v2":
-        try:
-            _write_switch_log(contract_chain["F1"], expiry_map, tz_ex, analysis_dir / "roll_switches_v2.csv")
-        except Exception as e:
-            LOGGER.warning("Failed to write roll_switches_v2.csv: %s", e)
+    # Write switch log for F1 transitions
+    try:
+        _write_switch_log(contract_chain["F1"], expiry_map, tz_ex, analysis_dir / "roll_switches.csv")
+    except Exception as e:
+        LOGGER.warning("Failed to write roll_switches.csv: %s", e)
 
     # Write cross-spread magnitude comparison outputs
     _write_csv(magnitude_comp, analysis_dir / "s1_vs_others_magnitude.csv", header=True)
@@ -317,13 +314,12 @@ def run_daily_analysis(
     panel = assemble_panel(filtered, metadata, include_bucket_meta=False)
 
     expiry_map = build_expiry_map(metadata)
-    sel_mode = (settings.selection or {}).get("mode", "expiry_v1")
+
+    # Use deterministic expiry-based labeling
     tz_ex = (settings.time or {}).get("tz_exchange", "America/Chicago")
-    if sel_mode == "expiry_v2":
-        chain = identify_front_to_f12_v2(panel, expiry_map, tz_exchange=tz_ex, max_contracts=2)
-        front_next = chain.rename(columns={"F1": "front_contract", "F2": "next_contract"})
-    else:
-        front_next = identify_front_next(panel, expiry_map, price_field=settings.data.get("price_field", "close"))
+    chain = identify_front_to_f12(panel, expiry_map, tz_exchange=tz_ex, max_contracts=2)
+    front_next = chain.rename(columns={"F1": "front_contract", "F2": "next_contract"})
+
     panel[("meta", "front_contract")] = front_next["front_contract"].values
     panel[("meta", "next_contract")] = front_next["next_contract"].values
 
@@ -348,21 +344,28 @@ def run_daily_analysis(
         confirm=settings.roll_rules.get("confirm_days", 1),
     )
 
-    calendar = None
+    # Strict calendar requirement: fail fast if calendar loading fails
     calendar_paths = settings.business_days.get("calendar_paths", [])
-    if calendar_paths:
-        try:
-            calendar = trading_days.load_calendar(
-                calendar_paths,
-                hierarchy=settings.business_days.get("calendar_hierarchy", "override"),
-            )
-        except Exception as exc:
-            LOGGER.warning("Failed to load trading calendar: %s", exc)
-            calendar = None
+    if not calendar_paths:
+        raise ValueError(
+            "business_days.calendar_paths is required. "
+            "Please provide a trading calendar in settings."
+        )
+
+    try:
+        calendar = trading_days.load_calendar(
+            calendar_paths,
+            hierarchy=settings.business_days.get("calendar_hierarchy", "override"),
+        )
+    except Exception as exc:
+        raise RuntimeError(
+            f"Failed to load trading calendar from {calendar_paths}: {exc}\n"
+            "Please ensure the calendar file exists and is properly formatted."
+        ) from exc
 
     business_days_index = None
     business_days_audit = None
-    if calendar is not None:
+    if calendar is not None:  # This will always be True now, but keeping for clarity
         try:
             result = trading_days.compute_business_days(
                 panel,
@@ -487,7 +490,7 @@ def _write_run_settings(settings: cfg.Settings, path: Path) -> None:
 def _write_switch_log(f1_series: pd.Series, expiry_map: pd.Series, tz_exchange: str, out_path: Path) -> None:
     idx = pd.DatetimeIndex(f1_series.index)
     if idx.tz is None:
-        idx_local = idx.tz_localize(tz_exchange, nonexistent="shift_forward", ambiguous="NaT")
+        idx_local = idx.tz_localize(tz_exchange, nonexistent="shift_forward", ambiguous="infer")
     else:
         idx_local = idx.tz_convert(tz_exchange)
     changes = f1_series.astype(object).ne(f1_series.shift(1)).fillna(True)
@@ -499,7 +502,8 @@ def _write_switch_log(f1_series: pd.Series, expiry_map: pd.Series, tz_exchange: 
         newf = f1_series.iloc[pos]
         prev_exp = pd.to_datetime(expiry_map.get(str(prev), pd.NaT))
         if pd.notna(prev_exp) and prev_exp.tz is None:
-            prev_exp = prev_exp.tz_localize(tz_exchange, ambiguous="NaT", nonexistent="shift_forward")
+            # For individual timestamps, use True (treat as DST) for ambiguous times
+            prev_exp = prev_exp.tz_localize(tz_exchange, ambiguous=True, nonexistent="shift_forward")
         rows.append(
             {
                 "prev_f1": prev,
