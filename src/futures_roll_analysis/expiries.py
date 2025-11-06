@@ -53,7 +53,7 @@ def load_expiries(path: str, tz_exchange: str, *, contract_col: str = "contract"
     if contract_col not in df.columns or local_iso_col not in df.columns:
         raise ValueError(f"CSV must include '{contract_col}' and '{local_iso_col}' columns")
 
-    local = pd.to_datetime(df[local_iso_col], utc=False, errors="raise").dt.tz_localize(tz_exchange, ambiguous="NaT", nonexistent="NaT")
+    local = pd.to_datetime(df[local_iso_col], utc=False, errors="raise").dt.tz_localize(tz_exchange, ambiguous="raise", nonexistent="raise")
     utc = local.dt.tz_convert("UTC")
     mapping = dict(zip(df[contract_col].astype(str), utc))
     return ExpirySpec(expiry_ts_utc=mapping, rule=rule, tz_exchange=tz_exchange)

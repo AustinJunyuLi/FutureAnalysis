@@ -11,7 +11,8 @@
 
 - **Required Calendar**: Trading calendar is now **mandatory**
   - Config validation fails fast if `business_days.calendar_paths` is empty or files missing
-  - No weekday fallback - strict calendar-only mode
+  - Defaults to strict calendar-only mode (no weekday fallback)
+  - Advanced `fallback_policy` options still available but not recommended for production
   - Clear error messages guide users to provide valid calendar files
 
 - **Hour-Based Timing**: All timing metrics now use hour precision instead of days

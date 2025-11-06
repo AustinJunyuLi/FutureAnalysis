@@ -78,6 +78,7 @@ business_days:
       - max_days: 999
         percentile: 0.05     # Far contracts
   near_expiry_relax: 5       # Days to expiry for relaxed coverage requirements
-  fallback_policy: "calendar_only"  # "calendar_only" | "union_with_data" | "intersection_strict"
+  fallback_policy: "calendar_only"  # RECOMMENDED: strict calendar-only (no weekday fallback)
+                                    # Advanced: "union_with_data" | "intersection_strict" (not recommended)
 
 output_dir: "../outputs"
