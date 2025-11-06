@@ -41,10 +41,6 @@ roll_rules:
   confirm_days: 1
   use_open_interest: false
 
-# Label selection (expiry_v1 = legacy; expiry_v2 = deterministic UTC-based)
-selection:
-  mode: expiry_v1
-
 time:
   tz_exchange: America/Chicago
 
@@ -63,8 +59,7 @@ spread:
   cool_down_hours: 3.0       # Time-based cool-down between events (hours)
 
 business_days:
-  enabled: false             # Master switch for business day calculations
-  calendar_paths:            # List of calendar files (hierarchical override)
+  calendar_paths:            # List of calendar files (hierarchical override, REQUIRED)
     - "../metadata/calendars/cme_globex_holidays.csv"
   calendar_hierarchy: "override"  # "override" | "union" | "intersection"
   min_total_buckets: 6       # Minimum total buckets per day for data guard

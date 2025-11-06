@@ -125,21 +125,40 @@ def filter_expiry_dominance_events(
 
 
 def _determine_open_days(calendar: Optional[pd.DataFrame], start: pd.Timestamp, end: pd.Timestamp) -> pd.DatetimeIndex:
-    days = pd.date_range(start, end, freq="D")
-    if calendar is None or "is_trading_day" not in calendar.columns:
-        return pd.DatetimeIndex([d for d in days if d.weekday() < 5])
+    """
+    Determine trading days from calendar.
 
+    Strict mode: Requires a valid calendar. No fallback to weekdays.
+
+    Raises
+    ------
+    ValueError
+        If calendar is None or missing required columns.
+    """
+    if calendar is None:
+        raise ValueError(
+            "Trading calendar is required for strip analysis. "
+            "Please provide business_days.calendar_paths in settings."
+        )
+    if "is_trading_day" not in calendar.columns:
+        raise ValueError(
+            "Trading calendar missing 'is_trading_day' column. "
+            "Please check calendar file format."
+        )
+
+    days = pd.date_range(start, end, freq="D")
     cal = calendar.copy()
     cal["date"] = pd.to_datetime(cal["date"]).dt.normalize()
     cal = cal.dropna(subset=["date"]).drop_duplicates("date").set_index("date")
 
+    # Strict mode: only use calendar, no weekday fallback
     open_days = []
     for day in days:
         if day in cal.index:
             if bool(cal.at[day, "is_trading_day"]):
                 open_days.append(day)
-        elif day.weekday() < 5:
-            open_days.append(day)
+        # No fallback to weekdays - dates must be in calendar
+
     return pd.DatetimeIndex(open_days)
 
 

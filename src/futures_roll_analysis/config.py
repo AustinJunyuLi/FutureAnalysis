@@ -17,7 +17,6 @@ class Settings:
     data: Dict[str, Any]
     data_quality: Dict[str, Any]
     roll_rules: Dict[str, Any]
-    selection: Dict[str, Any]
     time: Dict[str, Any]
     expiries: Dict[str, Any]
     strip_analysis: Dict[str, Any]
@@ -69,8 +68,6 @@ def load_settings(
 
     spread_cfg = raw.get("spread", {})
     roll_rules = raw.get("roll_rules", {})
-    selection_cfg = raw.get("selection", {}) or {}
-    selection_cfg.setdefault("mode", "expiry_v1")  # 'expiry_v1' | 'expiry_v2'
     time_cfg = raw.get("time", {}) or {}
     time_cfg.setdefault("tz_exchange", "America/Chicago")
     expiries_cfg = raw.get("expiries", {}) or {}
@@ -114,7 +111,6 @@ def load_settings(
         data=data_cfg,
         data_quality=dq_cfg,
         roll_rules=roll_rules,
-        selection=selection_cfg,
         time=time_cfg,
         expiries=expiries_cfg,
         strip_analysis=strip_analysis_cfg,
@@ -149,6 +145,20 @@ def _validate_settings(products: Iterable[str], data_cfg: Dict[str, Any], spread
     if method not in {"zscore", "abs", "combined"}:
         raise ValueError("spread.method must be one of: zscore, abs, combined")
     # No noise-reduction features (winsorization) in this iteration
+
+    # Strict calendar requirement: calendar_paths must exist and be valid
+    calendar_paths = business_days_cfg.get("calendar_paths", [])
+    if not calendar_paths:
+        raise ValueError(
+            "business_days.calendar_paths is required. "
+            "Please provide a trading calendar (e.g., cme_globex_holidays.csv)"
+        )
+    for cal_path in calendar_paths:
+        if not cal_path.exists():
+            raise FileNotFoundError(
+                f"Trading calendar not found: {cal_path}\n"
+                f"Please ensure the calendar file exists before running analysis."
+            )
 
     align = business_days_cfg.get("align_events", "none")
     if align not in {"none", "shift_next", "drop_closed"}:
