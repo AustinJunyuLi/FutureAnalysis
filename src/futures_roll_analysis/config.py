@@ -17,6 +17,9 @@ class Settings:
     data: Dict[str, Any]
     data_quality: Dict[str, Any]
     roll_rules: Dict[str, Any]
+    selection: Dict[str, Any]
+    time: Dict[str, Any]
+    expiries: Dict[str, Any]
     strip_analysis: Dict[str, Any]
     spread: Dict[str, Any]
     business_days: Dict[str, Any]
@@ -66,6 +69,11 @@ def load_settings(
 
     spread_cfg = raw.get("spread", {})
     roll_rules = raw.get("roll_rules", {})
+    selection_cfg = raw.get("selection", {}) or {}
+    selection_cfg.setdefault("mode", "expiry_v1")  # 'expiry_v1' | 'expiry_v2'
+    time_cfg = raw.get("time", {}) or {}
+    time_cfg.setdefault("tz_exchange", "America/Chicago")
+    expiries_cfg = raw.get("expiries", {}) or {}
     dq_cfg = raw.get("data_quality", {})
 
     strip_analysis_cfg = raw.get("strip_analysis", {}) or {}
@@ -106,6 +114,9 @@ def load_settings(
         data=data_cfg,
         data_quality=dq_cfg,
         roll_rules=roll_rules,
+        selection=selection_cfg,
+        time=time_cfg,
+        expiries=expiries_cfg,
         strip_analysis=strip_analysis_cfg,
         spread=spread_cfg,
         business_days=business_days_cfg,

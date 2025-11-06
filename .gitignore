@@ -93,3 +93,4 @@ emails/
 
 # MCP config (optional - uncomment if it contains secrets)
 # .mcp.json
+.tmp/

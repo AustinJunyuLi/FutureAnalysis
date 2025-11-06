@@ -100,6 +100,8 @@ def analyze_spread_timing(
     events_df: pd.DataFrame,
     contract_chain: pd.DataFrame,
     expiry_map: pd.Series,
+    *,
+    tz_exchange: str = "America/Chicago",
 ) -> pd.DataFrame:
     """
     Analyze timing of events relative to F1 contract expiry for all spreads.
@@ -161,21 +163,31 @@ def analyze_spread_timing(
             if f1_contract not in expiry_map.index:
                 continue
 
-            # FIXED: Use F1 expiry as common reference for all spreads
-            f1_expiry_date = expiry_map[f1_contract]
-            days_to_f1_expiry = (f1_expiry_date - ts.normalize()).days
+            # Use timestamp-precise expiry: localize to exchange tz if naive, then convert
+            f1_expiry = pd.to_datetime(expiry_map[f1_contract])
+            if f1_expiry.tz is None:
+                f1_expiry = f1_expiry.tz_localize(tz_exchange)
+            spread_expiry = pd.to_datetime(expiry_map[front_contract])
+            if spread_expiry.tz is None:
+                spread_expiry = spread_expiry.tz_localize(tz_exchange)
 
-            # Also keep the spread's own front contract expiry for reference
-            spread_expiry_date = expiry_map[front_contract]
+            # Align event ts to exchange tz
+            ts_local = pd.Timestamp(ts)
+            if ts_local.tz is None:
+                ts_local = ts_local.tz_localize(tz_exchange)
+            # Compute hour-precise timing relative to F1 expiry
+            hours_to_f1_expiry = (f1_expiry - ts_local).total_seconds() / 3600.0
+            days_to_f1_expiry = hours_to_f1_expiry / 24.0
 
             results.append({
                 'spread': col,
                 'event_date': ts,
                 'contract': front_contract,
-                'expiry_date': spread_expiry_date,
-                'days_to_expiry': days_to_f1_expiry,  # Now relative to F1!
+                'expiry_date': spread_expiry,
+                'days_to_expiry': days_to_f1_expiry,  # Now float days relative to F1 expiry
+                'hours_to_expiry': hours_to_f1_expiry,
                 'f1_contract': f1_contract,
-                'f1_expiry': f1_expiry_date,
+                'f1_expiry': f1_expiry,
             })
 
     if not results:

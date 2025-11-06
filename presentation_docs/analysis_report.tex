@@ -164,6 +164,16 @@ Early close & Partial day & Yes \\
 \end{tabular}
 \end{table}
 
+\subsection{Expiry Data Sources \,\&\, Assumptions}
+
+Expiry metadata for contracts in this analysis is sourced from the CME Group copper calendar, as referenced in our repository metadata file (\texttt{metadata/contracts\_metadata.csv}). Each metadata row includes a \texttt{source} label and a \texttt{source\_url} back to the official exchange site. For copper (HG), the canonical reference is:
+
+\begin{itemize}[noitemsep]
+  \item CME Group --- Copper Futures (calendar/specifications): \url{https://www.cmegroup.com/markets/metals/base/copper.calendar.html}
+\end{itemize}
+
+When an explicit expiry \emph{timestamp} is unavailable and only a \emph{date} is provided, our deterministic labeler (optional mode) applies a conservative exchange-local cutover time (default 17:00 \textsc{CT}) for the switch from F1\,$\to$\,F2. This default is documented in the analysis settings and can be overridden as authoritative last-trade timestamps (LTD) become available per contract. All expiry provenance (rule, timezone, and data source links) is captured alongside run settings and switch logs to ensure reproducibility.
+
 % (Holiday enumeration intentionally omitted; report focuses on business-day methodology.)
 
 \subsubsection{Business Day Computation}

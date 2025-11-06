@@ -22,6 +22,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -85,33 +87,76 @@ def get_contract_sequence(expiry_map: pd.Series) -> pd.DataFrame:
     return contract_df
 
 
-def compute_days_since_prev_expiry(
+def build_f1_transition_chain(
     timestamps: pd.DatetimeIndex,
     f1_contracts: pd.Series,
-    contract_sequence: pd.DataFrame,
+) -> pd.DataFrame:
+    """
+    Construct the observed F1 transition chain from the panel.
+
+    Returns a DataFrame with columns:
+      - start_time: timestamp when new F1 segment begins
+      - new_f1: contract that becomes F1 at start_time
+      - prev_f1: contract that was F1 immediately before start_time
+      - start_pos / end_pos: integer index bounds for the segment within timestamps
+    """
+    idx = pd.DatetimeIndex(timestamps)
+    series = pd.Series(f1_contracts.values, index=idx)
+    # Normalize to python objects to avoid categorical/nullable corner cases
+    series = series.astype(object)
+
+    changes = series.ne(series.shift(1)).fillna(True)
+    change_points = series.index[changes]
+
+    # Build segments
+    starts = list(change_points)
+    positions = np.searchsorted(idx.values, np.array(starts, dtype='datetime64[ns]'))
+    segments = []
+    for i, (t0, pos0) in enumerate(zip(starts, positions)):
+        pos1 = positions[i + 1] if i + 1 < len(positions) else len(idx)
+        new_f1 = series.loc[t0]
+        prev_f1 = series.iloc[pos0 - 1] if pos0 > 0 else None
+        segments.append(
+            {
+                'start_time': t0,
+                'new_f1': new_f1,
+                'prev_f1': prev_f1,
+                'start_pos': int(pos0),
+                'end_pos': int(pos1),
+            }
+        )
+    return pd.DataFrame(segments)
+
+
+def compute_days_since_prev_expiry_chain(
+    timestamps: pd.DatetimeIndex,
+    f1_contracts: pd.Series,
+    expiry_map: pd.Series,
 ) -> pd.Series:
     """
-    Compute days since the previous F1's expiry for each timestamp.
+    Compute days since the previous F1's expiry using the observed transition chain.
 
-    For each timestamp, look up the current F1 contract, find its predecessor's
-    expiry in the chronological contract sequence, and count days since that date.
-
-    Returns a Series aligned to `timestamps`. Negative values indicate timestamps
-    before the previous expiry (rare under strict F1-by-expiry logic); callers may
-    choose to drop or mask negatives when analyzing the "new contract month" window.
+    This anchors each F1 segment to the expiry date of the F1 contract that
+    actually preceded it in the panel (prev_f1 from the chain), avoiding errors
+    from calendar-only ordering.
     """
-    seq = contract_sequence.dropna(subset=["contract"]).copy()
-    seq["contract"] = seq["contract"].astype(str)
-    prev_expiry_map = (
-        seq.set_index("contract")["prev_expiry"].apply(
-            lambda d: pd.to_datetime(d).normalize() if pd.notna(d) else pd.NaT
-        )
-    )
+    idx = pd.DatetimeIndex(timestamps)
+    idx_dates = idx.normalize()
+    chain = build_f1_transition_chain(idx, f1_contracts)
 
-    prev_expiry = f1_contracts.map(prev_expiry_map)
-    ts_dates = pd.to_datetime(timestamps).normalize()
-    days_since_prev = (ts_dates - prev_expiry).dt.days
-    return pd.Series(days_since_prev.values, index=timestamps, name='days_since_prev_expiry')
+    prev_expiry_series = pd.Series(pd.NaT, index=idx)
+    for _, row in chain.iterrows():
+        prev_f1 = row['prev_f1']
+        if prev_f1 is None or (isinstance(prev_f1, float) and pd.isna(prev_f1)):
+            continue
+        exp = expiry_map.get(str(prev_f1))
+        if pd.isna(exp):
+            continue
+        exp = pd.to_datetime(exp).normalize()
+        prev_expiry_series.iloc[row['start_pos']: row['end_pos']] = exp
+
+    days_since_prev = (idx_dates - prev_expiry_series).dt.days
+    return days_since_prev.rename('days_since_prev_expiry_chain')
 
 
 def compute_days_since_became_f1(
@@ -232,40 +277,44 @@ def analyze_event_distribution(
     else:
         print(f"CONCLUSION: No significant clustering detected (p > 0.05)")
 
-    # Generate histogram
-    fig, ax = plt.subplots(figsize=(12, 6))
+    # Generate histogram (best-effort; skip if headless font issues)
+    try:
+        fig, ax = plt.subplots(figsize=(12, 6))
 
-    # Plot actual distribution
-    bin_centers = [3.5, 10.5, 17.5, 24.5, 44]  # Midpoint of each bin
-    ax.bar(bin_centers, bin_counts.values / len(valid_events) * 100,
-           width=[7, 7, 7, 7, 32], alpha=0.7, label='Actual')
+        # Plot actual distribution
+        bin_centers = [3.5, 10.5, 17.5, 24.5, 44]  # Midpoint of each bin
+        ax.bar(bin_centers, bin_counts.values / len(valid_events) * 100,
+               width=[7, 7, 7, 7, 32], alpha=0.7, label='Actual')
 
-    # Plot expected uniform distribution
-    expected_pcts = [p * 100 for p in expected_probs]
-    ax.plot(bin_centers, expected_pcts, 'r--', linewidth=2, marker='o',
-            markersize=8, label='Expected (uniform)')
+        # Plot expected uniform distribution
+        expected_pcts = [p * 100 for p in expected_probs]
+        ax.plot(bin_centers, expected_pcts, 'r--', linewidth=2, marker='o',
+                markersize=8, label='Expected (uniform)')
 
-    # Annotations
-    for i, (center, count, pct) in enumerate(zip(bin_centers, bin_counts.values, bin_counts.values / len(valid_events) * 100)):
-        ax.text(center, pct + 1, f'{count}\n({pct:.1f}%)',
-                ha='center', va='bottom', fontsize=10, fontweight='bold')
+        # Annotations
+        for i, (center, count, pct) in enumerate(zip(bin_centers, bin_counts.values, bin_counts.values / len(valid_events) * 100)):
+            ax.text(center, pct + 1, f'{count}\n({pct:.1f}%)',
+                    ha='center', va='bottom', fontsize=10, fontweight='bold')
 
-    x_label = 'Days Since Contract Became F1' if tag == 'became_f1' else 'Days Since Previous F1 Expiry'
-    ax.set_xlabel(x_label, fontsize=12)
-    ax.set_ylabel('Percentage of Events (%)', fontsize=12)
-    ax.set_title(f'Distribution of Spread Widening Events by Contract Age\n' +
-                 f'Total Events: {len(valid_events)} | First 7 Days: {early_pct:.1f}% | χ²={chi2_stat:.2f}, p={p_value:.4e}',
-                 fontsize=14, fontweight='bold')
-    ax.legend(fontsize=11)
-    ax.grid(True, alpha=0.3)
-    ax.set_xticks(bin_centers)
-    ax.set_xticklabels(labels, rotation=0)
+        x_label = 'Days Since Contract Became F1' if tag == 'became_f1' else 'Days Since Previous F1 Expiry'
+        ax.set_xlabel(x_label, fontsize=12)
+        ax.set_ylabel('Percentage of Events (%)', fontsize=12)
+        ax.set_title(
+            f'Distribution of Spread Widening Events by Contract Age\n'
+            f'Total Events: {len(valid_events)} | First 7 Days: {early_pct:.1f}% | χ²={chi2_stat:.2f}, p={p_value:.4e}',
+            fontsize=14, fontweight='bold')
+        ax.legend(fontsize=11)
+        ax.grid(True, alpha=0.3)
+        ax.set_xticks(bin_centers)
+        ax.set_xticklabels(labels, rotation=0)
 
-    plt.tight_layout()
-    plot_path = output_dir / f'contract_month_histogram_{tag}.png'
-    plt.savefig(plot_path, dpi=300, bbox_inches='tight')
-    print(f"\nPlot saved to: {plot_path}")
-    plt.close()
+        plt.tight_layout()
+        plot_path = output_dir / f'contract_month_histogram_{tag}.png'
+        plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+        print(f"\nPlot saved to: {plot_path}")
+        plt.close()
+    except Exception as e:
+        print(f"WARNING: Skipping plot generation due to rendering issue: {e}")
 
     # Summary statistics
     # Determine expected percentage for first 7 days under uniformity
@@ -325,11 +374,7 @@ def main():
     # Build contract sequence
     print("\n[2/5] Building contract sequence...")
     contract_sequence = get_contract_sequence(expiry_map)
-    print(f"      Built sequence of {len(contract_sequence)} contracts")
-    print(f"      First contract: {contract_sequence.iloc[0]['contract']} "
-          f"(expiry: {contract_sequence.iloc[0]['expiry_date'].date()})")
-    print(f"      Last contract:  {contract_sequence.iloc[-1]['contract']} "
-          f"(expiry: {contract_sequence.iloc[-1]['expiry_date'].date()})")
+    print(f"      Built sequence of {len(contract_sequence)} contracts (calendar order)")
 
     # Load panel for F1 identification
     print("\n[3/5] Loading panel data...")
@@ -351,11 +396,11 @@ def main():
         f1_contracts,
         contract_sequence
     )
-    # Supervisor-defined days since previous F1 expiry
-    days_since_prev = compute_days_since_prev_expiry(
+    # Supervisor-defined days since previous F1 expiry (CHAIN-BASED)
+    days_since_prev = compute_days_since_prev_expiry_chain(
         panel.index,
         f1_contracts,
-        contract_sequence,
+        expiry_map,
     )
 
     # Build combined DataFrame for analysis
@@ -363,7 +408,7 @@ def main():
         'timestamp': panel.index,
         'f1_contract': f1_contracts.values,
         'days_since_became_f1': days_since_f1.values,
-        'days_since_prev_expiry': days_since_prev.values,
+        'days_since_prev_expiry_chain': days_since_prev.values,
         'first_f1_date': first_f1_dates.values,
         'event_detected': events['spread_widening'].reindex(panel.index, fill_value=False).values
     })
@@ -387,13 +432,13 @@ def main():
 
     # Supervisor definition: days since previous F1 expiry (restrict to days >= 0)
     print("\n" + "="*60)
-    print("ANALYZING EVENT DISTRIBUTION (days since previous F1 expiry)")
+    print("ANALYZING EVENT DISTRIBUTION (days since previous F1 expiry — chain-based)")
     print("="*60)
     ed_prev = event_data.copy()
-    ed_prev = ed_prev[ed_prev['days_since_prev_expiry'].notna()]
-    ed_prev = ed_prev[ed_prev['days_since_prev_expiry'] >= 0]
+    ed_prev = ed_prev[ed_prev['days_since_prev_expiry_chain'].notna()]
+    ed_prev = ed_prev[ed_prev['days_since_prev_expiry_chain'] >= 0]
     stats_prev = analyze_event_distribution(
-        ed_prev, output_dir, days_col='days_since_prev_expiry', tag='prev_expiry'
+        ed_prev, output_dir, days_col='days_since_prev_expiry_chain', tag='prev_expiry_chain'
     )
 
     # Save detailed event data
@@ -413,7 +458,7 @@ def main():
         print(f"Summary stats saved to: {summary_first_path}")
 
     if stats_prev:
-        summary_prev_path = output_dir / 'contract_month_summary_prev_expiry.csv'
+        summary_prev_path = output_dir / 'contract_month_summary_prev_expiry_chain.csv'
         pd.DataFrame([stats_prev]).to_csv(summary_prev_path, index=False)
         print(f"Summary stats saved to: {summary_prev_path}")
 

@@ -5,18 +5,28 @@ from typing import Iterable, List, Optional, Sequence, Tuple
 import numpy as np
 import pandas as pd
 
+from .labeler import compute_strip_labels
 
-def build_expiry_map(expiry_df: pd.DataFrame) -> pd.Series:
-    """Return a Series mapping contract codes to expiry timestamps."""
+def build_expiry_map(expiry_df: pd.DataFrame, *, default_hour: int = 17, default_minute: int = 0) -> pd.Series:
+    """
+    Return a Series mapping contract codes to naive expiry timestamps (local day + time).
+
+    Notes
+    -----
+    - Historically we normalized to midnight (date-only). For better alignment with
+      actual switch moments, we now attach a default local time-of-day (naive) to
+      each expiry date. This avoids day-boundary ambiguities while keeping timezone
+      handling unchanged elsewhere (panel indices are naive local times).
+    - If callers need timezone-aware timestamps, they should localize explicitly.
+    """
     if "contract" not in expiry_df.columns or "expiry_date" not in expiry_df.columns:
         raise ValueError("Expiry metadata must include 'contract' and 'expiry_date' columns")
-    series = (
-        expiry_df.drop_duplicates("contract")
-        .set_index("contract")["expiry_date"]
-        .pipe(pd.to_datetime)
-        .dt.normalize()
-    )
-    return series
+
+    df = expiry_df.drop_duplicates("contract").copy()
+    df["expiry_date"] = pd.to_datetime(df["expiry_date"]).dt.normalize()
+    # Attach default expiry time within the local day (naive)
+    df["expiry_ts"] = df["expiry_date"] + pd.to_timedelta(default_hour, unit="h") + pd.to_timedelta(default_minute, unit="m")
+    return df.set_index("contract")["expiry_ts"]
 
 
 def identify_front_next(
@@ -57,17 +67,17 @@ def identify_front_next(
 
     dates = pd.to_datetime(
         panel.index.get_level_values(0) if isinstance(panel.index, pd.MultiIndex) else panel.index
-    ).normalize()
+    )
 
     close_values = close_df.to_numpy(dtype=float)
-    available = np.isfinite(close_values)
 
     expiry_array = pd.to_datetime(expiry_series).to_numpy(dtype="datetime64[ns]")
     expiry_int = expiry_array.astype("datetime64[ns]").astype("int64")
     date_int = dates.to_numpy(dtype="datetime64[ns]").astype("int64")
 
     delta = expiry_int.reshape(1, -1) - date_int.reshape(-1, 1)
-    active_mask = available & (delta >= 0)
+    # Define activeness purely by time (decouple from data availability)
+    active_mask = (delta >= 0)
 
     delta = delta.astype("float64")
     delta[~active_mask] = np.inf
@@ -144,17 +154,17 @@ def identify_front_to_f12(
 
     dates = pd.to_datetime(
         panel.index.get_level_values(0) if isinstance(panel.index, pd.MultiIndex) else panel.index
-    ).normalize()
+    )
 
     close_values = close_df.to_numpy(dtype=float)
-    available = np.isfinite(close_values)
 
     expiry_array = pd.to_datetime(expiry_series).to_numpy(dtype="datetime64[ns]")
     expiry_int = expiry_array.astype("datetime64[ns]").astype("int64")
     date_int = dates.to_numpy(dtype="datetime64[ns]").astype("int64")
 
     delta = expiry_int.reshape(1, -1) - date_int.reshape(-1, 1)
-    active_mask = available & (delta >= 0)
+    # Define activeness purely by time (decouple from data availability)
+    active_mask = (delta >= 0)
 
     delta = delta.astype("float64")
     delta[~active_mask] = np.inf
@@ -177,6 +187,67 @@ def identify_front_to_f12(
 
     result = pd.DataFrame(result_dict, index=panel.index)
     return result
+
+
+def identify_front_to_f12_v2(
+    panel: pd.DataFrame,
+    expiry_map: pd.Series,
+    *,
+    tz_exchange: str = "America/Chicago",
+    max_contracts: int = 12,
+    meta_namespace: str = "meta",
+) -> pd.DataFrame:
+    """
+    Deterministic identification of F1..F{max_contracts} using expiry timestamps only.
+
+    Converts the panel index to UTC (assuming exchange-local tz for naive indices)
+    and expiries to UTC, then uses compute_strip_labels to build the strip.
+    """
+    ts = panel.index.get_level_values(0) if isinstance(panel.index, pd.MultiIndex) else panel.index
+    idx = pd.DatetimeIndex(ts)
+    if idx.tz is None:
+        idx_utc = idx.tz_localize(tz_exchange, nonexistent="shift_forward", ambiguous="NaT").tz_convert("UTC")
+    else:
+        idx_utc = idx.tz_convert("UTC")
+
+    # Contracts present in the panel
+    contracts = [c for c in panel.columns.get_level_values(0).unique() if c != meta_namespace]
+    # Sort by expiry ascending
+    exp_series = pd.to_datetime(expiry_map.reindex(contracts))
+    contracts_sorted = exp_series.sort_values().index.tolist()
+
+    # Convert expiries to UTC tz-aware
+    expiries_utc = {}
+    for c in contracts_sorted:
+        v = exp_series.loc[c]
+        if pd.isna(v):
+            continue
+        ts_local = pd.Timestamp(v)
+        if ts_local.tz is None:
+            ts_local = ts_local.tz_localize(tz_exchange, ambiguous="NaT", nonexistent="shift_forward")
+        expiries_utc[c] = ts_local.tz_convert("UTC")
+
+    strip = compute_strip_labels(idx_utc, contracts_sorted, expiries_utc, depth=max_contracts)
+    strip.index = panel.index
+    return strip
+
+
+def identify_front_next_v2(
+    panel: pd.DataFrame,
+    expiry_map: pd.Series,
+    *,
+    tz_exchange: str = "America/Chicago",
+    meta_namespace: str = "meta",
+) -> pd.DataFrame:
+    """Front/next (F1/F2) wrapper over the deterministic labeler."""
+    strip = identify_front_to_f12_v2(
+        panel,
+        expiry_map,
+        tz_exchange=tz_exchange,
+        max_contracts=2,
+        meta_namespace=meta_namespace,
+    ).rename(columns={"F1": "front_contract", "F2": "next_contract"})
+    return strip
 
 
 def compute_spread(

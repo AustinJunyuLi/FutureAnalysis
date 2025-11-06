@@ -149,6 +149,42 @@ def load_calendar_hierarchy(
     return load_calendar(found, hierarchy="override")
 
 
+def trading_day_index(
+    ts_utc: pd.DatetimeIndex,
+    anchor_local: str = "17:00",
+    tz_exchange: str = "America/Chicago",
+) -> pd.DatetimeIndex:
+    """
+    Map UTC timestamps to trading-day dates based on a local-time anchor.
+
+    Parameters
+    ----------
+    ts_utc:
+        UTC tz-aware DatetimeIndex.
+    anchor_local:
+        Local time (HH:MM) at/after which the trading day is considered the same
+        calendar date, otherwise previous calendar date.
+    tz_exchange:
+        IANA timezone name for the exchange (e.g., America/Chicago).
+
+    Returns
+    -------
+    Naive DatetimeIndex of dates representing trading days suitable for grouping.
+    """
+    idx = pd.DatetimeIndex(ts_utc)
+    if idx.tz is None:
+        raise ValueError("trading_day_index requires tz-aware UTC timestamps")
+    local = idx.tz_convert(tz_exchange)
+    try:
+        h, m = map(int, anchor_local.split(":"))
+    except Exception as e:
+        raise ValueError(f"Invalid anchor_local '{anchor_local}': {e}")
+    is_same = (local.hour > h) | ((local.hour == h) & (local.minute >= m))
+    base = local.normalize()
+    td = base.where(is_same, base - pd.Timedelta(days=1))
+    return pd.DatetimeIndex(td.tz_localize(None))
+
+
 def map_to_trading_date(
     index: pd.DatetimeIndex,
     bucket_ids: Optional[pd.Series] = None,

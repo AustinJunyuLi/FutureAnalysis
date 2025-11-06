@@ -41,6 +41,13 @@ roll_rules:
   confirm_days: 1
   use_open_interest: false
 
+# Label selection (expiry_v1 = legacy; expiry_v2 = deterministic UTC-based)
+selection:
+  mode: expiry_v1
+
+time:
+  tz_exchange: America/Chicago
+
 strip_analysis:
   enabled: true
   strip_length: 12

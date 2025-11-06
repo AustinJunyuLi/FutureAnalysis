@@ -29,6 +29,8 @@ from .rolls import (
     compute_multi_spreads,
     identify_front_next,
     identify_front_to_f12,
+    identify_front_next_v2,
+    identify_front_to_f12_v2,
 )
 from . import multi_spread_analysis
 
@@ -64,7 +66,21 @@ def run_bucket_analysis(
     panel = assemble_panel(buckets, metadata, include_bucket_meta=True)
 
     expiry_map = build_expiry_map(metadata)
-    front_next = identify_front_next(panel, expiry_map, price_field=settings.data.get("price_field", "close"))
+    # Label selection mode
+    sel_mode = (settings.selection or {}).get("mode", "expiry_v1")
+    tz_ex = (settings.time or {}).get("tz_exchange", "America/Chicago")
+    if sel_mode == "expiry_v2":
+        chain = identify_front_to_f12_v2(panel, expiry_map, tz_exchange=tz_ex, max_contracts=12)
+        # Construct front/next from chain
+        front_next = chain.loc[:, ["F1", "F2"]].rename(columns={"F1": "front_contract", "F2": "next_contract"})
+    else:
+        front_next = identify_front_next(panel, expiry_map, price_field=settings.data.get("price_field", "close"))
+        chain = identify_front_to_f12(
+            panel,
+            expiry_map,
+            max_contracts=12,
+            price_field=settings.data.get("price_field", "close"),
+        )
     panel[("meta", "front_contract")] = front_next["front_contract"].values
     panel[("meta", "next_contract")] = front_next["next_contract"].values
 
@@ -106,12 +122,7 @@ def run_bucket_analysis(
 
     # Multi-spread analysis for supervisor's test
     LOGGER.info("Computing multi-spread analysis (F1-F12, S1-S11)...")
-    contract_chain = identify_front_to_f12(
-        panel,
-        expiry_map,
-        max_contracts=12,
-        price_field=settings.data.get("price_field", "close"),
-    )
+    contract_chain = chain
     LOGGER.info(f"Contract chain identified: {len(contract_chain)} periods × {len(contract_chain.columns)} contracts")
 
     multi_spreads = compute_multi_spreads(
@@ -139,6 +150,7 @@ def run_bucket_analysis(
         multi_events,
         contract_chain,
         expiry_map,
+        tz_exchange=tz_ex,
     )
     timing_summary = multi_spread_analysis.summarize_timing_by_spread(spread_timing)
     spread_changes = multi_spread_analysis.analyze_spread_changes(multi_spreads)
@@ -240,6 +252,13 @@ def run_bucket_analysis(
     _write_csv(timing_summary, analysis_dir / "spread_timing_summary.csv", index=False)
     _write_csv(spread_changes, analysis_dir / "spread_change_statistics.csv", index=False)
 
+    # Optional: write switch log when using deterministic labels
+    if sel_mode == "expiry_v2":
+        try:
+            _write_switch_log(contract_chain["F1"], expiry_map, tz_ex, analysis_dir / "roll_switches_v2.csv")
+        except Exception as e:
+            LOGGER.warning("Failed to write roll_switches_v2.csv: %s", e)
+
     # Write cross-spread magnitude comparison outputs
     _write_csv(magnitude_comp, analysis_dir / "s1_vs_others_magnitude.csv", header=True)
     _write_csv(s1_dominance_by_cycle, analysis_dir / "s1_dominance_by_cycle.csv", index=False)
@@ -298,7 +317,13 @@ def run_daily_analysis(
     panel = assemble_panel(filtered, metadata, include_bucket_meta=False)
 
     expiry_map = build_expiry_map(metadata)
-    front_next = identify_front_next(panel, expiry_map, price_field=settings.data.get("price_field", "close"))
+    sel_mode = (settings.selection or {}).get("mode", "expiry_v1")
+    tz_ex = (settings.time or {}).get("tz_exchange", "America/Chicago")
+    if sel_mode == "expiry_v2":
+        chain = identify_front_to_f12_v2(panel, expiry_map, tz_exchange=tz_ex, max_contracts=2)
+        front_next = chain.rename(columns={"F1": "front_contract", "F2": "next_contract"})
+    else:
+        front_next = identify_front_next(panel, expiry_map, price_field=settings.data.get("price_field", "close"))
     panel[("meta", "front_contract")] = front_next["front_contract"].values
     panel[("meta", "next_contract")] = front_next["next_contract"].values
 
@@ -450,8 +475,38 @@ def _write_run_settings(settings: cfg.Settings, path: Path) -> None:
         "products": list(settings.products),
         "data": settings.data,
         "spread": settings.spread,
+        "selection": getattr(settings, "selection", {}),
+        "time": getattr(settings, "time", {}),
         "business_days": {k: v for k, v in settings.business_days.items() if k != "calendar_paths"},
         "output_dir": str(settings.output_dir),
         "metadata_path": str(settings.metadata_path),
     }
     path.write_text(json.dumps(payload, indent=2, default=str))
+
+
+def _write_switch_log(f1_series: pd.Series, expiry_map: pd.Series, tz_exchange: str, out_path: Path) -> None:
+    idx = pd.DatetimeIndex(f1_series.index)
+    if idx.tz is None:
+        idx_local = idx.tz_localize(tz_exchange, nonexistent="shift_forward", ambiguous="NaT")
+    else:
+        idx_local = idx.tz_convert(tz_exchange)
+    changes = f1_series.astype(object).ne(f1_series.shift(1)).fillna(True)
+    change_points = f1_series.index[changes]
+    rows = []
+    for cp in change_points[1:]:  # skip first segment with no previous F1
+        pos = f1_series.index.get_loc(cp)
+        prev = f1_series.iloc[pos - 1]
+        newf = f1_series.iloc[pos]
+        prev_exp = pd.to_datetime(expiry_map.get(str(prev), pd.NaT))
+        if pd.notna(prev_exp) and prev_exp.tz is None:
+            prev_exp = prev_exp.tz_localize(tz_exchange, ambiguous="NaT", nonexistent="shift_forward")
+        rows.append(
+            {
+                "prev_f1": prev,
+                "new_f1": newf,
+                "transition_time_local": idx_local[pos],
+                "prev_f1_expiry_local": prev_exp,
+            }
+        )
+    if rows:
+        pd.DataFrame(rows).to_csv(out_path, index=False)
