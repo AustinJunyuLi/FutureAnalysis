@@ -56,6 +56,7 @@ raw_data/
 
 # Exclude CSV/log from outputs, but allow metadata
 /outputs/*.csv
+/outputs/test*/
 /data_inventory.csv
 
 # Allow metadata CSVs
@@ -68,8 +69,7 @@ Thumbs.db
 *~
 .*.swp
 
-# Project specific
-data_inventory.csv
+# Project specific (data_inventory already above)
 /tmp/
 
 # LaTeX build artifacts
