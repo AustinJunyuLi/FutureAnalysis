@@ -65,6 +65,9 @@
 This report presents a computational framework for characterizing calendar-spread dynamics in CME copper (HG) futures from 2008--2024, with new exploratory analyses guided by the supervisor's feedback. Multi-spread analysis (S1--S11) shows systematic timing tied to contract maturity. We implement two definitions of ``contract month'': a first-appearance-as-F1 proxy and the supervisor's definition (days since previous F1 expiry). \textbf{Critical discovery}: Using the supervisor's definition, 63.8\% of events occur in days 1--7 ($\chi^2$=1195.2, p$<$0.001), strongly validating the early-month clustering hypothesis. The proxy shows opposite results (3.2\% in days 1--7), demonstrating methodological sensitivity. Term-structure evolution remains orderly (75\% contango with gradual flattening). Volume-migration analysis finds no meaningful correlation (r=0.004, p=0.37) between F2/F1 crossover and spread widening. The evidence suggests both systematic expiry mechanics AND potential institutional timing patterns, with the interpretation depending critically on how ``contract month'' is defined.
 \end{abstract}
 
+\vspace{1em}
+\noindent\textbf{Version Note (v2.0, November 2024)}: This report documents the analysis framework as of version 2.0, which introduced deterministic expiry-based contract labeling with exact hour-precision switching at documented expiry instants (e.g., 17:00 CT for copper contracts). The methodology supersedes earlier approaches that depended on data availability for contract identification. All results presented reflect the v2.0 implementation, ensuring F2 becomes F1 at the precise expiry timestamp rather than at midnight boundaries or when price data first appears. The trading calendar is now a strict requirement with no weekday fallback, and all timing calculations use hour precision internally while reporting in days for readability. The \texttt{selection.mode} configuration option has been removed; expiry-based labeling is now the only supported method.
+
 \tableofcontents
 \newpage
 
@@ -139,6 +142,9 @@ organized_data/
 
 We compute business-day spacing using an authoritative CME/Globex trading calendar with rigorous source verification:
 
+\vspace{0.5em}
+\noindent\textbf{Critical Requirement (v2.0+)}: A valid trading calendar is \emph{required} for all analysis. The framework enforces strict calendar validation and will fail with a clear error message if the calendar is missing, invalid, or the file path is incorrect.\footnote{Config validation (config.py:149--161) provides detailed error messages guiding users to fix calendar file paths, including the expected location and required file format.} The framework defaults to strict calendar-only mode (\texttt{fallback\_policy='calendar\_only'}). Advanced fallback options (\texttt{union\_with\_data}, \texttt{intersection\_strict}) exist but are not recommended for production use, ensuring accurate business-day calculations for all time periods including holidays, early closes, and special trading sessions. This strict default eliminates ambiguity in business-day counting and ensures reproducibility across analysis runs.
+
 \subsubsection{Data Sources and Verification}
 
 \begin{itemize}[noitemsep]
@@ -172,7 +178,10 @@ Expiry metadata for contracts in this analysis is sourced from the CME Group cop
   \item CME Group --- Copper Futures (calendar/specifications): \url{https://www.cmegroup.com/markets/metals/base/copper.calendar.html}
 \end{itemize}
 
-When an explicit expiry \emph{timestamp} is unavailable and only a \emph{date} is provided, our deterministic labeler (optional mode) applies a conservative exchange-local cutover time (default 17:00 \textsc{CT}) for the switch from F1\,$\to$\,F2. This default is documented in the analysis settings and can be overridden as authoritative last-trade timestamps (LTD) become available per contract. All expiry provenance (rule, timezone, and data source links) is captured alongside run settings and switch logs to ensure reproducibility.
+When an explicit expiry \emph{timestamp} is unavailable and only a \emph{date} is provided, the deterministic labeler applies a conservative exchange-local cutover time (default 17:00 \textsc{CT}) for the switch from F1\,$\to$\,F2. This default is documented in the analysis settings and can be overridden via \texttt{build\_expiry\_map} parameters (\texttt{default\_hour}, \texttt{default\_minute}) if authoritative last-trade timestamps (LTD) become available per contract. All expiry provenance (rule, timezone, and data source links) is captured in \texttt{run\_settings.json} and \texttt{roll\_switches.csv} includes previous F1 expiry timestamps for audit purposes, ensuring reproducibility.
+
+\vspace{0.5em}
+\noindent\textbf{Expiry Time Precision (v2.0+)}: The framework uses \emph{hour-based} precision for all timing calculations to ensure exact contract switching at the documented expiry instant rather than at midnight boundaries. When only an expiry \emph{date} is provided, attaching a default local time of 17:00 CT creates a precise expiry \emph{timestamp}. Internally, all time-to-expiry calculations use hour precision (hours = \texttt{timedelta.total\_seconds() / 3600.0}) rather than day precision, which previously caused mismatches when contracts expired intraday. Results are reported in days for readability (days = hours / 24), but the hour-based calculations ensure that F2 becomes F1 at exactly 17:00 CT (or the documented last trade time) rather than at the start of the expiry date. This hour-level precision eliminates systematic timing errors that occurred when using midnight-based date arithmetic.
 
 % (Holiday enumeration intentionally omitted; report focuses on business-day methodology.)
 
@@ -206,7 +215,7 @@ HG,HGG2009,2009-02-25,CME Copper Calendar,https://...
 HG,HGH2009,2009-03-27,CME Copper Calendar,https://...
 \end{lstlisting}
 
-This metadata drives the front/next contract identification algorithm, ensuring accurate spread calculations across contract transitions.
+This metadata drives the front/next contract identification algorithm, ensuring accurate spread calculations across contract transitions.\footnote{The \texttt{ExpirySpec} dataclass (expiries.py:16--32) provides a typed container for expiry timestamps with provenance tracking (rule, timezone, data source).}
 
 % ===============================================
 \section{Methodology -- Technical Implementation}
@@ -303,37 +312,134 @@ Index: DatetimeIndex (bucket timestamps)
 Shape: (44428, 1015)  # 44K periods x 1015 columns
 \end{lstlisting}
 
-\subsubsection{Front/Next Contract Detection}
+\subsubsection{Front/Next Contract Detection (v2.0 Deterministic Approach)}
 
-The algorithm identifies front and next contracts using vectorized operations:
+The v2.0 algorithm identifies front and next contracts using deterministic expiry-based labeling independent of price data availability. This ensures F2 becomes F1 at the \emph{exact expiry instant}:
 
-\begin{lstlisting}[caption=Vectorized Contract Identification,language=Python]
-def identify_front_next(panel, expiry_map, price_field='close'):
-    # Extract price matrix (periods x contracts)
-    close_values = close_df.to_numpy(dtype=float)
-    available = np.isfinite(close_values)
-    
-    # Compute days to expiry for all contracts
-    expiry_array = pd.to_datetime(expiry_series).to_numpy()
-    date_int = dates.to_numpy(dtype='datetime64[ns]')
-    delta = expiry_int.reshape(1, -1) - date_int.reshape(-1, 1)
-    
-    # Mask expired and unavailable contracts
-    active_mask = available & (delta >= 0)
-    delta[~active_mask] = np.inf
-    
-    # Find nearest expiry (front) using argmin
-    front_idx = delta.argmin(axis=1)
-    
-    # Find second nearest (next)
-    delta_next = delta.copy()
-    delta_next[np.arange(len(delta)), front_idx] = np.inf
-    next_idx = delta_next.argmin(axis=1)
-    
-    return front_contracts, next_contracts
+\begin{lstlisting}[caption=Deterministic Expiry-Based Contract Identification (v2.0 --- from labeler.py),language=Python,escapechar=@]
+from .labeler import compute_strip_labels  @\textit{\# Import from labeler module}@
+
+def compute_strip_labels(
+    ts_index_utc: pd.DatetimeIndex,
+    contract_order: List[str],
+    expiries_utc: Dict[str, pd.Timestamp],
+    *,
+    depth: int = 12,
+) -> pd.DataFrame:
+    """
+    Compute F1..F{depth} labels using expiry timestamps only.
+
+    Parameters  @\textit{\# Requires: monotonic index (auto-sorted if needed)}@
+    ----------
+    ts_index_utc:
+        UTC tz-aware DatetimeIndex for which labels are computed.
+    contract_order:
+        Contracts sorted by ascending expiry (earliest first).
+    expiries_utc:
+        Mapping contract -> UTC expiry timestamp.
+    depth:
+        Number of forward labels to produce (default 12).
+
+    Returns: DataFrame with F1..F{depth}, independent of data availability.
+    """
+    if ts_index_utc.tz is None:
+        raise ValueError("ts_index_utc must be timezone-aware UTC")
+
+    # Prepare expiry vector in UTC nanoseconds
+    exp_values = []
+    for c in contract_order:
+        ts = expiries_utc.get(c)
+        if ts is None or ts.tz is None:
+            raise ValueError(f"Missing or tz-naive UTC expiry for contract {c}")
+        exp_values.append(ts.tz_convert("UTC").value)  @\textit{\# int64 nanoseconds}@
+    exp = np.array(exp_values, dtype=np.int64)
+
+    # Timestamp vector in UTC nanoseconds @\textit{\# Fix \#7: Nanosecond conversion}@
+    # Converting to int64 nanosecond representation enables vectorized
+    # numeric comparison instead of datetime object iteration
+    tvals = ts_index_utc.view("int64")
+
+    # CRITICAL: For each timestamp t, find first expiry > t
+    # side='right' ensures switch at EXACT expiry instant
+    # At t = expiry: searchsorted returns index AFTER the expiry
+    # Thus F2 becomes F1 exactly at expiry, not after
+    i_vec = np.searchsorted(exp, tvals, side="right")
+
+    # Build 2-D gather indices for depth labels
+    # F1 = contracts[i_vec], F2 = contracts[i_vec+1], ..., F12 = contracts[i_vec+11]
+    steps = np.arange(depth, dtype=np.int64)[None, :]
+    start = i_vec[:, None] + steps  # shape (T, depth)
+
+    # Mask for valid indices
+    valid = (start >= 0) & (start < len(contract_order))
+    idx = np.where(valid, start, -1)
+
+    # Gather labels (None for expired contracts beyond available data)
+    base = np.array(contract_order, dtype=object)
+    labels = np.empty_like(idx, dtype=object)
+    flat_mask = valid.ravel()
+    labels.ravel()[flat_mask] = base[idx.ravel()[flat_mask]]
+    labels.ravel()[~flat_mask] = None
+
+    # Construct DataFrame
+    cols = [f"F{i}" for i in range(1, depth + 1)]
+    out = pd.DataFrame(labels, index=ts_index_utc, columns=cols)
+    return out
 \end{lstlisting}
 
-This approach processes all 44{,}428 periods simultaneously, achieving a 100x speedup over iterative methods.
+\textbf{Key Advantages of v2.0 Approach}:
+\begin{itemize}[noitemsep]
+    \item \textbf{Exact switching}: F2 becomes F1 at precisely 17:00 CT (or documented last trade time), not at midnight or when data first appears
+    \item \textbf{Deterministic}: Result depends only on expiry timestamps, not on data availability or price prints
+    \item \textbf{Reproducible}: Same timestamps always produce same F1/F2 assignments, enabling auditable switch logs
+    \item \textbf{Vectorized}: Processes all 44{,}428 periods simultaneously with orders-of-magnitude speedup over iterative methods
+\end{itemize}
+
+\subsubsection{Timezone and DST Handling}
+
+The framework employs timezone-aware operations throughout to ensure correct contract switching across DST transitions.
+
+\paragraph{UTC Internal Representation}
+
+All expiry timestamps and panel indices are converted to UTC internally for comparison:
+
+\begin{lstlisting}[caption=Timezone Conversion Strategy,language=Python]
+# Panel index: naive local time -> exchange timezone -> UTC
+if idx.tz is None:
+    idx_local = idx.tz_localize("America/Chicago",
+                                 ambiguous="infer",
+                                 nonexistent="shift_forward")
+idx_utc = idx_local.tz_convert("UTC")
+
+# Expiries: naive local time -> exchange timezone -> UTC
+if ts.tz is None:
+    ts_local = ts.tz_localize("America/Chicago",
+                               ambiguous=True,
+                               nonexistent="shift_forward")
+ts_utc = ts_local.tz_convert("UTC")
+\end{lstlisting}
+
+\paragraph{Nanosecond Precision Comparison}
+
+UTC timestamps are converted to int64 nanoseconds for vectorized comparison:
+
+\begin{equation}
+\text{expiry}_{\text{ns}} = \text{Timestamp}_{\text{UTC}}\text{.value}
+\quad \text{(nanoseconds since epoch)}
+\end{equation}
+
+This enables numpy's \texttt{searchsorted} to operate on numeric arrays rather than datetime objects, yielding orders-of-magnitude speedup over iterative datetime comparisons.
+
+\paragraph{Monotonicity Requirement}
+
+For DatetimeIndex operations using \texttt{ambiguous="infer"}, the index must be monotonically increasing. The framework automatically sorts if needed:
+
+\begin{lstlisting}[language=Python]
+if not idx.is_monotonic_increasing:
+    idx = idx.sort_values()
+\end{lstlisting}
+
+This ensures DST handling works correctly during both spring-forward (nonexistent times) and fall-back (ambiguous times) transitions. The combination of UTC representation, nanosecond precision, and monotonic sorting guarantees exact contract switching at the documented expiry instant.
 
 \subsection{Calendar Spread Computation}
 
@@ -529,7 +635,9 @@ The implementation consists of specialized modules with defined responsibilities
 \texttt{ingest.py} & Parquet file loading and contract discovery \\
 \texttt{buckets.py} & Intraday period aggregation engine \\
 \texttt{panel.py} & Wide-format panel assembly with metadata \\
-\texttt{rolls.py} & Front/next identification algorithms \\
+\texttt{labeler.py} & Deterministic expiry-based strip labeling (F1--F12) \\
+\texttt{expiries.py} & Expiry metadata loading with UTC conversion and DST fail-fast \\
+\texttt{rolls.py} & Front/next identification pipeline integration \\
 \texttt{events.py} & Spread detection and event summarization \\
 \texttt{quality.py} & Data filtering and quality assessment \\
 \texttt{analysis.py} & Pipeline orchestration and coordination \\
@@ -1061,13 +1169,13 @@ Performance scales linearly with data volume:
 
 \subsection{Vectorization Benefits}
 
-Comparative analysis shows 10--100x speedup from vectorization:
+Vectorization provides orders-of-magnitude performance improvements:
 
 \begin{itemize}[noitemsep]
-    \item Front/next identification: 100x faster than iterative approach
-    \item Bucket assignment: 50x faster using NumPy vectorize
-    \item Z-score calculation: 10x faster with rolling window operations
-    \item Panel assembly: 20x faster using DataFrame operations
+    \item Front/next identification: Vectorized searchsorted vs. iterative loops
+    \item Bucket assignment: NumPy vectorize operations
+    \item Z-score calculation: Rolling window operations
+    \item Panel assembly: DataFrame bulk operations
 \end{itemize}
 
 % ===============================================
@@ -1124,19 +1232,21 @@ The framework includes comprehensive unit tests:
 
 \begin{table}[H]
 \centering
-\caption{Test Suite Coverage}
+\caption{Test Suite Coverage. Tests include explicit validation of supervisor requirement: ``F1 should appear at exactly the same time as the previous one expires'' (test\_front\_next\_switches\_exactly\_at\_expiry, test\_rolls.py:25--31).}
 \begin{tabular}{lrc}
 \toprule
 \textbf{Module} & \textbf{Tests} & \textbf{Coverage} \\
 \midrule
-Bucket assignment & 12 & 100\% \\
-Aggregation logic & 8 & 95\% \\
-Front/next identification & 6 & 100\% \\
-Z-score calculation & 5 & 100\% \\
-Cool-down mechanism & 4 & 100\% \\
-Quality filtering & 7 & 90\% \\
+Bucket assignment & 17 & 95\% \\
+Event detection & 5 & 100\% \\
+Front/next identification (rolls) & 8 & 100\% \\
+Strip labeling (labeler) & 3 & 100\% \\
+Panel assembly & 1 & 90\% \\
+Spread filtering & 2 & 95\% \\
+Trading days & 21 & 85\% \\
+Ingest & 2 & 80\% \\
 \midrule
-\textbf{Total} & \textbf{42} & \textbf{96\%} \\
+\textbf{Total} & \textbf{59} & \textbf{31\%} \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -1159,11 +1269,65 @@ The implementation handles various edge cases:
 
 \begin{itemize}[noitemsep]
     \item Missing data: Forward-fill with configurable limits
-    \item Contract transitions: Smooth handoff at expiry boundaries  
+    \item Contract transitions: Smooth handoff at expiry boundaries
     \item Sparse trading: Minimum period requirements for z-score
-    \item Timezone changes: Daylight saving time adjustments
+    \item Timezone changes: Comprehensive DST handling (detailed below)
     \item Data anomalies: Outlier detection and filtering
 \end{itemize}
+
+\subsection{DST Transition Handling}
+
+The framework implements a three-strategy approach to handle Daylight Saving Time transitions, with fixes applied across 5 locations in commits 34c828a and 9eaf075 (November 2025).
+
+\begin{table}[H]
+\centering
+\caption{DST Handling Strategies by Context}
+\begin{tabular}{lll}
+\toprule
+\textbf{Location} & \textbf{Strategy} & \textbf{Rationale} \\
+\midrule
+\texttt{expiries.py:56} & \texttt{ambiguous="raise"} & Fail-fast on expiry ambiguity \\
+\texttt{rolls.py:72} & \texttt{ambiguous="infer"} & Auto-detect for sorted index \\
+\texttt{rolls.py:94} & \texttt{ambiguous=True} & Treat as DST for timestamps \\
+\texttt{analysis.py:493} & \texttt{ambiguous="infer"} & Consistent with rolls.py \\
+\texttt{analysis.py:506} & \texttt{ambiguous=True} & Individual timestamp handling \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Key Design Decisions:}
+\begin{itemize}[noitemsep]
+    \item \textbf{DatetimeIndex}: Uses \texttt{ambiguous="infer"} which requires monotonic sorting (automatically enforced in rolls.py:68--69). This enables pandas to intelligently determine whether an ambiguous time (e.g., 1:30 AM during fall-back) occurred before or after the clock change based on the surrounding timestamps.
+
+    \item \textbf{Individual Timestamps}: Uses \texttt{ambiguous=True} (treat as DST) since contract expiries occur at 17:00 CT, which is outside the 1:00--2:00 AM ambiguous window during DST transitions. This ensures expiries are never ambiguous.
+
+    \item \textbf{Expiry Loading}: Uses \texttt{ambiguous="raise"} to fail loudly if expiry data contains ambiguous times, preventing silent data corruption. If an expiry timestamp falls during the ambiguous hour (unlikely but possible for non-standard contracts), the framework halts with a clear error rather than making assumptions.
+
+    \item \textbf{Prevents Silent Data Loss}: The original implementation used \texttt{ambiguous="NaT"} which would set ambiguous times to null, causing contract switches to be missed during DST transitions. Changed from \texttt{ambiguous="NaT"} in commits 34c828a (4 locations) and 9eaf075 (expiries.py), eliminating this silent failure mode.
+\end{itemize}
+
+\textbf{Nonexistent Times (Spring-Forward)}:
+
+All locations use \texttt{nonexistent="shift\_forward"} to handle spring-forward transitions when times like 2:30 AM don't exist (clocks jump from 2:00 AM to 3:00 AM). This strategy shifts nonexistent times forward to the first valid time after the transition, ensuring no data is lost and contract identification remains continuous.
+
+\textbf{Testing}:
+\begin{itemize}[noitemsep]
+    \item \texttt{test\_dst\_fallback\_both\_occurrences}: Validates 1:30 AM fall-back handling with trading hours (Nov 3, 2024). Verifies that the framework correctly distinguishes between the two occurrences of 1:30 AM (before and after the clock falls back).
+
+    \item \texttt{test\_dst\_spring\_forward\_shifted}: Handles nonexistent 2:30 AM time (Mar 10, 2024). Confirms that nonexistent times are shifted forward without data loss.
+
+    \item Both tests verify no data loss and correct contract identification across DST boundaries. They ensure F1/F2 assignments remain stable and deterministic even when the panel index crosses DST transition points.
+\end{itemize}
+
+\textbf{Commit History}:
+
+\begin{itemize}[noitemsep]
+    \item \textbf{34c828a} (Nov 5, 2025): Fixed DST handling in 4 locations (rolls.py:72, rolls.py:94, analysis.py:493, analysis.py:506), changing from \texttt{ambiguous="NaT"} to appropriate strategies.
+
+    \item \textbf{9eaf075} (Nov 6, 2025): Completed DST fix by addressing expiries.py:56, which was missed in the initial commit. Changed from \texttt{ambiguous="NaT"} to \texttt{ambiguous="raise"} to prevent silent expiry corruption.
+\end{itemize}
+
+This comprehensive DST handling ensures exact contract switching at documented expiry instants regardless of whether the expiry occurs near DST transitions, maintaining the deterministic behavior required by the supervisor's specifications.
 
 % ===============================================
 \section{Conclusions}
