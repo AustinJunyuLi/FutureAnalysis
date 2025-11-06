@@ -171,8 +171,15 @@ futures_individual_contracts_1min/
 │   ├── analysis/          # Summaries and matrices
 │   └── data_quality/      # Quality metrics
 └── scripts/
-    ├── setup_env.sh        # Environment setup helper
-    └── cleanup.sh          # Cache cleanup utility
+    ├── analysis/           # Exploratory and one-off analysis scripts
+    │   ├── contract_month_analysis.py
+    │   ├── term_structure_*.py
+    │   └── volume_crossover.py
+    ├── setup/              # Environment setup and maintenance
+    │   ├── setup_env.sh
+    │   └── cleanup.sh
+    └── validation/         # Data validation utilities
+        └── verify_cme_holidays.py
 ```
 
 ## Key Features
@@ -246,10 +253,10 @@ output_dir:     # Output directory
 ### Environment Setup
 ```bash
 # Use the setup script for each session
-source scripts/setup_env.sh
+source scripts/setup/setup_env.sh
 
 # Clean cache files
-./scripts/cleanup.sh
+./scripts/setup/cleanup.sh
 ```
 
 ### Making Changes
@@ -260,7 +267,9 @@ source scripts/setup_env.sh
 
 ## Technical Details
 
-For detailed implementation notes and analysis methodology, see [`docs/AGENTS.md`](docs/AGENTS.md).
+For detailed implementation notes and analysis methodology, see:
+- [`AGENTS.md`](AGENTS.md): Repository guidelines, architecture, and development standards
+- [`presentation_docs/analysis_report.pdf`](presentation_docs/analysis_report.pdf): Complete methodology documentation
 
 ## License
 
