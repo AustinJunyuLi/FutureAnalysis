@@ -23,10 +23,6 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from matplotlib import cm
 
-# Add src to path for imports
-src_path = Path(__file__).parent.parent / "src"
-sys.path.insert(0, str(src_path))
-
 from futures_roll_analysis.rolls import identify_front_to_f12, build_expiry_map
 
 
