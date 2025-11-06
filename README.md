@@ -74,44 +74,60 @@ futures-roll analyze --mode hourly --max-files 5 --output-dir outputs/test
 - `--inventory`: Path for inventory CSV
 - `--dry-run`: Preview without moving files
 
-### Business Days Feature (Optional)
+### Contract Labeling (F1/F2)
 
-The package includes sophisticated business day calculations for more accurate event spacing analysis. This feature uses official CME/Globex trading calendars combined with data activity guards.
+The package uses **deterministic expiry-based labeling** to identify front-month (F1) and next-month (F2) contracts:
 
-Business days are always enabled. To use a custom calendar, pass `--calendar`:
+- **Exact expiry switching**: F2 becomes F1 at the precise expiry instant (e.g., 17:00 CT)
+- **Timezone-aware**: Handles DST transitions correctly (no data gaps)
+- **Hour-based precision**: All timing calculations use hours, not days
+- **UTC internal representation**: Ensures consistent cross-timezone behavior
+
+**Key behavior**: Contracts switch based solely on expiry timestamps, independent of data availability. The switch occurs exactly when the previous F1 expires.
+
+### Required Trading Calendar
+
+A valid trading calendar is **required** for analysis. The package will fail with a clear error if the calendar is missing:
+
+```yaml
+business_days:
+  calendar_paths:
+    - "../metadata/calendars/cme_globex_holidays.csv"  # REQUIRED
+```
+
+To use a custom calendar via CLI:
 ```bash
 futures-roll analyze --mode hourly \
   --settings config/settings.yaml \
   --calendar metadata/calendars/cme_globex_holidays.csv
 ```
 
-**Enable via Configuration (`config/settings.yaml`):**
+**Calendar Configuration (`config/settings.yaml`):**
 ```yaml
 business_days:
-  enabled: true
-  calendar_paths:
+  calendar_paths:  # REQUIRED - list of trading calendar files
     - "../metadata/calendars/cme_globex_holidays.csv"
-  calendar_hierarchy: "override"
-  min_total_buckets: 6
-  min_us_buckets: 2
+  calendar_hierarchy: "override"  # override | union | intersection
+  min_total_buckets: 6            # Min buckets per day for data validation
+  min_us_buckets: 2              # Min US session buckets
   volume_threshold:
     method: "dynamic"
-    dynamic_ranges:
+    dynamic_ranges:              # Days converted to hours internally
       - {max_days: 5, percentile: 0.30}    # Delivery month
       - {max_days: 30, percentile: 0.20}   # Near expiry
       - {max_days: 60, percentile: 0.10}   # Active roll
       - {max_days: 999, percentile: 0.05}  # Far contracts
-  near_expiry_relax: 5
+  near_expiry_relax: 5           # Days (converted to hours)
   fallback_policy: "calendar_only"
-  align_events: "none"        # none | shift_next | drop_closed
+  align_events: "none"           # none | shift_next | drop_closed
 ```
 
 **Key Features:**
-- **Trading Calendar**: Uses official CME/Globex holiday schedules (2015-2025)
+- **Trading Calendar**: Uses official CME/Globex holiday schedules (2015-2025) - **REQUIRED**
 - **Data Guards**: Validates trading activity with coverage and volume thresholds
-- **Dynamic Thresholds**: Volume requirements adapt to contract lifecycle
+- **Dynamic Thresholds**: Volume requirements adapt to contract lifecycle (config in days, computed in hours)
 - **Partial Days**: Handles early close sessions (Thanksgiving, Christmas Eve)
-- **Backward Compatible**: Disabled by default; existing outputs unchanged
+- **Strict Mode**: Fails fast with clear errors if calendar is missing or invalid
 
 ### Calendar Linting
 

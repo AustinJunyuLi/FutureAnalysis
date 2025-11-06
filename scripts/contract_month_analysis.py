@@ -155,8 +155,8 @@ def compute_days_since_prev_expiry_chain(
         exp = pd.to_datetime(exp).normalize()
         prev_expiry_series.iloc[row['start_pos']: row['end_pos']] = exp
 
-    days_since_prev = (idx_dates - prev_expiry_series).dt.days
-    return days_since_prev.rename('days_since_prev_expiry_chain')
+    hours_since_prev = (idx_dates - prev_expiry_series).dt.total_seconds() / 3600.0
+    return hours_since_prev.rename('hours_since_prev_expiry_chain')
 
 
 def compute_days_since_became_f1(
@@ -190,12 +190,11 @@ def compute_days_since_became_f1(
     # Map each timestamp's F1 contract to its first F1 date
     first_f1_dates = f1_contracts.map(contract_first_f1)
 
-    # Calculate days since became F1
-    timestamp_dates = pd.to_datetime(timestamps).normalize()
-    days_since_f1 = (timestamp_dates - first_f1_dates).dt.days
+    # Calculate hours since became F1
+    hours_since_f1 = (timestamps - first_f1_dates).dt.total_seconds() / 3600.0
 
     return (
-        pd.Series(days_since_f1.values, index=timestamps, name='days_since_became_f1'),
+        pd.Series(hours_since_f1.values, index=timestamps, name='hours_since_became_f1'),
         pd.Series(first_f1_dates.values, index=timestamps, name='first_f1_date')
     )
 
@@ -413,14 +412,13 @@ def main():
         'event_detected': events['spread_widening'].reindex(panel.index, fill_value=False).values
     })
 
-    # Also add traditional "days_to_expiry" for comparison
+    # Also add hour-based "hours_to_expiry" for comparison
     f1_expiry_dates = f1_contracts.map(expiry_map)
-    timestamp_dates = pd.to_datetime(panel.index).normalize()
-    days_to_expiry = (f1_expiry_dates - timestamp_dates).dt.days
-    event_data['days_to_expiry'] = days_to_expiry.values
+    hours_to_expiry = (f1_expiry_dates - panel.index).dt.total_seconds() / 3600.0
+    event_data['hours_to_expiry'] = hours_to_expiry.values
 
     print(f"      Computed ages for {len(event_data)} periods")
-    print(f"      Valid ages (non-null): {event_data['days_since_became_f1'].notna().sum()}")
+    print(f"      Valid ages (non-null): {event_data['hours_since_became_f1'].notna().sum()}")
 
     # Analyze distribution
     print("\n" + "="*60)

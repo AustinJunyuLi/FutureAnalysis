@@ -237,26 +237,31 @@ def _extract_total_volume(panel: pd.DataFrame, front_next: pd.DataFrame) -> pd.S
     return pd.Series(total, index=panel.index)
 
 
-def _compute_days_to_expiry(
+def _compute_hours_to_expiry(
     index: pd.DatetimeIndex,
     front_next: pd.DataFrame,
     expiry_map: pd.Series,
 ) -> pd.Series:
+    """
+    Compute hours remaining until expiry for each timestamp.
+
+    Uses hour-based precision for better alignment with intraday expiry times.
+    """
     if expiry_map is None:
         raise ValueError("expiry_map must be provided to compute business days")
 
     idx = pd.DatetimeIndex(index)
     if idx.tz is not None:
         idx = idx.tz_convert(None)
-    event_dates = idx.normalize()
 
     front_contracts = front_next["front_contract"].reindex(index)
     expiry_series = front_contracts.map(expiry_map)
-    base_dates = pd.Series(event_dates, index=index)
+    idx_series = pd.Series(idx, index=index)
 
-    days = (expiry_series - base_dates).dt.days
-    days = days.clip(lower=0)
-    return days.fillna(np.inf)
+    # Convert timedelta to hours using total_seconds() / 3600.0
+    hours = (expiry_series - idx_series).dt.total_seconds() / 3600.0
+    hours = hours.clip(lower=0)
+    return hours.fillna(np.inf)
 
 
 def _quantile_safe(series: pd.Series, q: float, default: float = 0.0) -> float:
@@ -271,9 +276,14 @@ def _quantile_safe(series: pd.Series, q: float, default: float = 0.0) -> float:
 def compute_dynamic_volume_threshold(
     panel: pd.DataFrame,
     front_next: pd.DataFrame,
-    days_to_expiry: pd.Series,
+    hours_to_expiry: pd.Series,
     config: Optional[Dict] = None,
 ) -> pd.Series:
+    """
+    Compute dynamic volume threshold based on hours to expiry.
+
+    Config values (max_days) are converted to hours internally.
+    """
     volume = _extract_total_volume(panel, front_next)
     if volume.empty:
         return pd.Series(0.0, index=panel.index)
@@ -301,12 +311,13 @@ def compute_dynamic_volume_threshold(
 
     thresholds = pd.Series(np.nan, index=panel.index, dtype=float)
     remaining = pd.Series(True, index=panel.index)
-    dte = days_to_expiry.fillna(np.inf)
+    hte = hours_to_expiry.fillna(np.inf)
 
     for range_cfg in ranges:
         max_days = range_cfg["max_days"]
+        max_hours = max_days * 24  # Convert days to hours
         percentile = range_cfg["percentile"]
-        mask = remaining & (dte <= max_days)
+        mask = remaining & (hte <= max_hours)
         if mask.any():
             subset_volume = volume[mask]
             threshold_value = _quantile_safe(subset_volume, percentile, default=0.0)
@@ -377,10 +388,10 @@ def compute_business_days(
     volume_series = _extract_total_volume(panel, front_next)
     volume_by_date = volume_series.groupby(trading_dates).sum()
 
-    dte_series = _compute_days_to_expiry(panel.index, front_next, expiry_map)
-    min_dte_by_date = dte_series.groupby(trading_dates).min()
+    hte_series = _compute_hours_to_expiry(panel.index, front_next, expiry_map)
+    min_hte_by_date = hte_series.groupby(trading_dates).min()
 
-    threshold_series = compute_dynamic_volume_threshold(panel, front_next, dte_series, volume_threshold_config)
+    threshold_series = compute_dynamic_volume_threshold(panel, front_next, hte_series, volume_threshold_config)
     threshold_by_date = threshold_series.groupby(trading_dates).first()
 
     calendar = calendar.copy()
@@ -408,7 +419,7 @@ def compute_business_days(
     summary["total_buckets"] = coverage_by_date["total_buckets"].reindex(all_dates, fill_value=0)
     summary["us_buckets"] = coverage_by_date["us_buckets"].reindex(all_dates, fill_value=0)
     summary["volume"] = volume_by_date.reindex(all_dates, fill_value=0.0)
-    summary["min_dte"] = min_dte_by_date.reindex(all_dates, fill_value=np.inf)
+    summary["min_hte"] = min_hte_by_date.reindex(all_dates, fill_value=np.inf)
     summary["threshold"] = threshold_by_date.reindex(all_dates, fill_value=0.0)
     summary["has_data"] = summary["total_buckets"] > 0
     summary["calendar_closed"] = summary.index.map(lambda d: d in closed_dates)
@@ -423,7 +434,9 @@ def compute_business_days(
         coverage_ok |= summary["us_buckets"] >= effective_min_us
 
     if near_expiry_relax is not None:
-        summary["near_expiry_ok"] = summary["min_dte"] <= near_expiry_relax
+        # Convert days to hours for comparison
+        near_expiry_hours = near_expiry_relax * 24
+        summary["near_expiry_ok"] = summary["min_hte"] <= near_expiry_hours
         coverage_ok |= summary["near_expiry_ok"]
     else:
         summary["near_expiry_ok"] = False
