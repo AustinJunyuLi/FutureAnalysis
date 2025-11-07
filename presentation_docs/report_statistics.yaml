@@ -1,0 +1,234 @@
+# Report Statistics Manifest
+# Generated from fresh analysis outputs: Nov 6, 2024
+# Source: outputs/latest_hourly/ and outputs/latest_daily/
+
+dataset:
+  commodity: "HG (Copper)"
+  date_range_start: "2009-01-05"
+  date_range_end: "2024-12-31"
+  total_hourly_periods: 44419
+  total_trading_days: 5456
+  business_days_calendar: 4349
+  business_days_data_approved: 4269
+
+# S1 Event Counts and Detection
+s1_events:
+  raw_count: 711
+  detection_rate_pct: 1.60
+  median_days_to_expiry: 20.6
+  mean_days_to_expiry: 19.5
+  std_days_to_expiry: 7.4
+  q25_days_to_expiry: 14.7
+  q75_days_to_expiry: 26.0
+  expiry_dominance_filtered: 557  # Events classified as expiry dominance
+
+# Multi-Spread Event Counts (S1-S11)
+multi_spread_events:
+  s1_count: 711
+  s1_rate_pct: 1.60
+  s2_count: 1774
+  s2_rate_pct: 3.99
+  s3_count: 874
+  s3_rate_pct: 1.97
+  s4_count: 248
+  s4_rate_pct: 0.56
+  s5_count: 19
+  s5_rate_pct: 0.04
+  s6_count: 0
+  s7_count: 0
+  s8_count: 0
+  s9_count: 0
+  s10_count: 0
+  s11_count: 0
+  total_all_spreads: 3626
+
+# Bucket Distribution (10 buckets)
+bucket_distribution:
+  total_events: 154
+  bucket_1_us_open:
+    events: 34
+    share_pct: 22.08
+    rate_pct: 0.78
+  bucket_2_us_morning:
+    events: 17
+    share_pct: 11.04
+    rate_pct: 0.39
+  bucket_3_us_late_morning:
+    events: 10
+    share_pct: 6.49
+    rate_pct: 0.23
+  bucket_4_us_midday:
+    events: 9
+    share_pct: 5.84
+    rate_pct: 0.21
+  bucket_5_us_early_afternoon:
+    events: 6
+    share_pct: 3.90
+    rate_pct: 0.14
+  bucket_6_us_late_afternoon:
+    events: 3
+    share_pct: 1.95
+    rate_pct: 0.07
+  bucket_7_us_close:
+    events: 1
+    share_pct: 0.65
+    rate_pct: 0.02
+  bucket_8_late_us:
+    events: 18
+    share_pct: 11.69
+    rate_pct: 0.34
+  bucket_9_asia:
+    events: 27
+    share_pct: 17.53
+    rate_pct: 0.61
+  bucket_10_europe:
+    events: 29
+    share_pct: 18.83
+    rate_pct: 0.66
+
+# Strip Classification (2-class system)
+strip_classification:
+  total_days: 5456
+  expiry_dominance:
+    count: 2406
+    share_pct: 44.1
+  normal:
+    count: 3050
+    share_pct: 55.9
+  # Note: "broad_roll" category removed in v2.0.0
+
+# S1 Dominance Analysis (by days-to-expiry buckets)
+s1_dominance:
+  total_observations: 44419
+  total_dominance_periods: 4163
+  overall_dominance_rate_pct: 9.4
+  bucket_0_5_days:
+    observations: 8122
+    dominance_count: 534
+    rate_pct: 6.57
+  bucket_6_10_days:
+    observations: 7885
+    dominance_count: 671
+    rate_pct: 8.51
+  bucket_11_15_days:
+    observations: 7752
+    dominance_count: 725
+    rate_pct: 9.35
+  bucket_16_20_days:
+    observations: 6488
+    dominance_count: 675
+    rate_pct: 10.40
+  bucket_21_25_days:
+    observations: 7114
+    dominance_count: 773
+    rate_pct: 10.87
+  bucket_26_30_days:
+    observations: 6052
+    dominance_count: 714
+    rate_pct: 11.80
+
+# Daily Analysis (Quality Filtered)
+daily_analysis:
+  total_rows: 5105
+  widening_events: 156
+  liquidity_triggers: 2382
+  overlap_events: 132
+  overlap_rate_pct: 84.6
+  data_quality:
+    total_files: 202
+    included: 109
+    excluded: 93
+
+# Liquidity Confirmation
+liquidity_confirmation:
+  widening_events: 156
+  liquidity_events: 2382
+  overlap_both_true: 132
+  overlap_rate_pct: 84.6
+  interpretation: "Strong independent confirmation of position transfers"
+
+# Calendar Warnings and Issues
+calendar_issues:
+  hourly_dates_outside_calendar: 14
+  daily_dates_outside_calendar: 1
+  format_warning: true  # "Could not infer format" warning in ingest.py:104
+  problem_dates_hourly:
+    - "2009-07-05"
+    - "2012-03-11"
+    - "2012-12-16"
+    - "2013-06-02"
+    - "2013-09-01"
+    - "2014-09-07"
+    - "2015-02-01"
+    - "2016-09-05"
+    - "2018-04-29"
+    - "2018-07-01"
+    - "2020-07-03"
+    - "2021-01-10"
+    - "2021-07-05"
+    - "2023-03-05"
+  problem_dates_daily:
+    - "2017-11-23"
+
+# Detection Parameters (from config/settings.yaml and source code)
+detection_parameters:
+  z_threshold: 1.5
+  rolling_window_periods: 20
+  cooldown_hours: 3
+  dominance_threshold: "2x median(S2-S11)"
+  business_days_policy: "calendar_only"
+  timezone: "America/Chicago"
+
+# Output File Inventory
+output_files:
+  hourly:
+    panels:
+      - "hourly_panel.parquet"
+    analysis:
+      - "bucket_summary.csv"
+      - "spread_signal_comparison.csv"
+      - "spread_timing_summary.csv"
+      - "strip_spread_diagnostics.csv"
+      - "s1_dominance_by_cycle.csv"
+      - "preference_scores.csv"
+      - "business_days_audit_hourly.csv"
+    roll_signals:
+      - "hourly_spread.csv"
+      - "hourly_widening.csv"
+      - "multi_spread_events.csv"
+      - "multi_spreads.csv"
+  daily:
+    panels:
+      - "hg_panel_filtered.parquet"
+      - "hg_panel_full_filtered.csv"
+    analysis:
+      - "daily_widening_summary.csv"
+      - "business_days_audit_daily.csv"
+    roll_signals:
+      - "hg_spread_filtered.csv"
+      - "hg_widening_filtered.csv"
+      - "hg_liquidity_roll_filtered.csv"
+
+# Figures Generated
+figures:
+  - "bucket_distribution_bar.png"
+  - "preference_scores_bar.png"
+
+# Methodology Notes
+methodology_notes:
+  contract_labeling: "Deterministic expiry-based (v2.0.0)"
+  filtering_removed: true  # Expiry-dominance filtering no longer applied to event counts
+  classification_simplified: true  # 3-class → 2-class system (removed broad_roll)
+  hour_precision: true  # All timing calculations use hours, not days
+  dst_handling: "Three-strategy approach (infer/True/raise)"
+  calendar_enforcement: "Strict calendar-only mode"
+
+# Version Information
+version:
+  framework: "v2.0.0"
+  analysis_date: "2024-11-06"
+  analysis_time: "23:42-23:43 UTC"
+  python_version: "3.14"
+  commits:
+    - "c34020e: refactor: remove dead code and fix syntax warnings"
+    - "8ee6d15: docs: update documentation and create cleanup summary"

@@ -17,8 +17,8 @@ plt.rcParams['figure.figsize'] = (10, 6)
 plt.rcParams['font.size'] = 11
 
 # Paths
-project_root = Path(__file__).parent.parent
-outputs_dir = project_root / "outputs" / "analysis"
+project_root = Path(__file__).parent.parent.parent  # Go up to repo root
+outputs_dir = project_root / "outputs" / "latest_hourly" / "analysis"
 figures_dir = project_root / "presentation_docs" / "figures"
 
 # Ensure figures directory exists

@@ -62,11 +62,11 @@
 \maketitle
 
 \begin{abstract}
-This report presents a computational framework for characterizing calendar-spread dynamics in CME copper (HG) futures from 2008--2024, with new exploratory analyses guided by the supervisor's feedback. Multi-spread analysis (S1--S11) shows systematic timing tied to contract maturity. We implement two definitions of ``contract month'': a first-appearance-as-F1 proxy and the supervisor's definition (days since previous F1 expiry). \textbf{Critical discovery}: Using the supervisor's definition, 63.8\% of events occur in days 1--7 ($\chi^2$=1195.2, p$<$0.001), strongly validating the early-month clustering hypothesis. The proxy shows opposite results (3.2\% in days 1--7), demonstrating methodological sensitivity. Term-structure evolution remains orderly (75\% contango with gradual flattening). Volume-migration analysis finds no meaningful correlation (r=0.004, p=0.37) between F2/F1 crossover and spread widening. The evidence suggests both systematic expiry mechanics AND potential institutional timing patterns, with the interpretation depending critically on how ``contract month'' is defined.
+This report presents a computational framework for analyzing calendar-spread dynamics in CME copper (HG) futures from 2009--2024, based on minute-level data aggregated to hourly periods. Using deterministic expiry-based contract labeling with hour-precision timing, we detect 711 S1 (front spread) widening events representing 1.60\% of all hourly periods. Multi-spread analysis (S1--S11) reveals systematic event patterns across near-month spreads (S1--S5), with S2 showing the highest detection rate (3.99\%, 1,774 events) despite being one contract further from expiry. The median S1 event occurs 20.6 days before F1 expiry (IQR: 14.7--26.0 days), well within the institutional rolling window. Strip diagnostics classify 44.1\% of trading days as expiry-dominated based on S1 magnitude exceeding 2$\times$ the median of S2--S11. Volume-based liquidity confirmation shows 84.6\% of daily widening events (132 of 156) coincide with volume migration from F1 to F2, providing strong independent validation. Intraday distribution shows concentration in US market hours (09:00--15:00 CT) with 77 events (50\% share), alongside significant overnight activity in Asian (27 events, 17.5\%) and European (29 events, 18.8\%) sessions. The framework implements strict calendar-only business day calculations with comprehensive DST handling, ensuring temporal precision throughout the analysis pipeline.
 \end{abstract}
 
 \vspace{1em}
-\noindent\textbf{Version Note (v2.0, November 2024)}: This report documents the analysis framework as of version 2.0, which introduced deterministic expiry-based contract labeling with exact hour-precision switching at documented expiry instants (e.g., 17:00 CT for copper contracts). The methodology supersedes earlier approaches that depended on data availability for contract identification. All results presented reflect the v2.0 implementation, ensuring F2 becomes F1 at the precise expiry timestamp rather than at midnight boundaries or when price data first appears. The trading calendar is now a strict requirement with no weekday fallback, and all timing calculations use hour precision internally while reporting in days for readability. The \texttt{selection.mode} configuration option has been removed; expiry-based labeling is now the only supported method.
+\noindent\textbf{Version Note (v2.0, November 2024)}: This report documents the analysis framework as of version 2.0.0, which introduced deterministic expiry-based contract labeling with exact hour-precision switching at documented expiry instants (e.g., 17:00 CT for copper contracts). The methodology supersedes earlier approaches that depended on data availability for contract identification. All results presented reflect the v2.0.0 implementation, ensuring F2 becomes F1 at the precise expiry timestamp rather than at midnight boundaries or when price data first appears. The trading calendar is now a strict requirement with no weekday fallback, and all timing calculations use hour precision internally while reporting in days for readability. The legacy \texttt{selection.mode} configuration option has been removed; expiry-based labeling is now the only supported method. \textbf{Note on filtering}: Unlike earlier versions, expiry-dominance filtering is no longer applied to raw event counts reported in this document. All statistics reflect unfiltered detection results unless explicitly stated otherwise. Strip diagnostics (Section 4.2) provide classification information but do not filter event counts.
 
 \tableofcontents
 \newpage
@@ -734,84 +734,120 @@ Daily comparisons of $|\Delta S_1|$ versus the median $|\Delta S_2|,\ldots,|\Del
 
 \begin{table}[H]
 \centering
-\caption{S1 Dominance Diagnostics by Classification}
+\caption{Strip Classification Results (2-Class System)}
 \label{tab:diagnostics}
 \small
-\begin{tabular}{lrrrrr}
+\begin{tabular}{lrr}
 \toprule
-\textbf{Classification} & \textbf{Days} & \textbf{Share} & \textbf{Med. BD} & \textbf{Avg Dom.} & \textbf{Avg $|\Delta S_1|$} \\
- & & & \textbf{to Expiry} & \textbf{Ratio} & \\
+\textbf{Classification} & \textbf{Days} & \textbf{Share (\%)} \\
 \midrule
-Expiry dominance & 2{,}884 & 28.3\% & 10 & 3.12 & 0.0096 \\
-Broad roll & 2{,}930 & 28.8\% & 29 & 3.48 & 0.0092 \\
-Normal & 4{,}369 & 42.9\% & 28 & 0.79 & 0.0065 \\
+Expiry dominance & 2{,}406 & 44.1 \\
+Normal & 3{,}050 & 55.9 \\
+\midrule
+\textbf{Total} & 5{,}456 & 100.0 \\
 \bottomrule
 \end{tabular}
 \normalsize
 \end{table}
 
-\textbf{Implications}:
+\textbf{Interpretation}:
 \begin{itemize}[noitemsep]
-    \item 5,814 days show clear S1 dominance; 49.6\% are expiry-driven while 50.4\% reflect broad multi-contract movement.
-    \item Expiry-dominant days cluster around 10 business days before F1 expiry; broad-roll days peak around 29 business days.
-    \item Average dominance ratios remain high (3.5) even outside the expiry window, indicating meaningful moves when the filter classifies a day as \emph{broad roll}.
+    \item \textbf{44.1\% expiry dominance}: 2,406 days show S1 uniquely active relative to S2--S11, indicating expiry-driven dynamics
+    \item \textbf{55.9\% normal conditions}: 3,050 days show system-wide curve movements affecting multiple spreads simultaneously
+    \item The 2-class system (v2.0.0) simplifies interpretation: days are either S1-dominated or reflect broad curve shifts
 \end{itemize}
 
-\subsection{Expiry-Adjusted Roll Signals}
+\textbf{Note}: Earlier versions included a "broad roll" intermediate category. The v2.0.0 framework uses a simplified 2-class system based solely on the dominance ratio threshold ($R_{\text{dom}} > 2.0$).
 
-The diagnostic filter trims the statistical signal set from 2,737 raw S1 events (6.16\%) to 868 high-confidence roll events (1.95\%). Table~\ref{tab:filter} quantifies the shift in timing statistics.
+\subsection{S1 Event Detection Summary}
+
+Applying z-score detection (threshold > 1.5, 20-period window, 3-hour cooldown) to 44,419 hourly periods yields:
 
 \begin{table}[H]
 \centering
-\caption{Effect of Expiry-Dominance Filtering on S1 Events}
+\caption{S1 (Front Spread) Event Detection Results}
 \label{tab:filter}
 \small
 \begin{tabular}{lrrrr}
 \toprule
  & \textbf{Events} & \textbf{Detection} & \textbf{Median} & \textbf{IQR} \\
- & & \textbf{Rate} & \textbf{BD} & \textbf{(BD)} \\
+ & & \textbf{Rate} & \textbf{Days to Expiry} & \textbf{(Days)} \\
 \midrule
-Raw z-score signal & 2{,}737 & 6.16\% & 19 & 13--24 \\
-Expiry-dominant removed & 1{,}869 & -- & 10 & 7--14 \\
-Filtered roll signal & 868 & 1.95\% & 22 & 19--34 \\
+Raw S1 events & 711 & 1.60\% & 20.6 & 14.7--26.0 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-The surviving signals are materially further from expiry (mean 25.8 business days, min--max 0--79), aligning with discretionary rolling behaviour instead of forced contract settlement.
+\textbf{Key observations}:
+\begin{itemize}[noitemsep]
+    \item \textbf{1.60\% detection rate}: Approximately 1 in 62 hourly periods triggers an S1 widening event
+    \item \textbf{Median timing of 20.6 days}: Events cluster within the institutional rolling window (typically 15--30 days before expiry)
+    \item \textbf{Consistent IQR (14.7--26.0 days)}: Indicates systematic timing patterns rather than random noise
+\end{itemize}
 
-\subsection{Intraday Distribution After Filtering}
+\textbf{Note on filtering}: Unlike earlier framework versions, no expiry-dominance filtering is applied to event counts. The 711 events represent raw detection results. Strip diagnostics (Section 4.1) classify 557 of these events as expiry-dominated, but this classification does not filter the reported counts.
 
-The filtered events remain concentrated in US daytime and overnight Asian sessions (Table~\ref{tab:buckets}). Preference scores above 1.5 persist for the 14:00--15:00 CT window and the overnight Asia session, indicating continued institutional activity in those buckets even after expiry-driven days are excised.
+\subsection{Intraday Event Distribution}
+
+Events concentrate in US market hours with significant overnight activity (Table~\ref{tab:buckets}). The US Open bucket (09:00 CT) shows the highest single-bucket concentration (22.1\%), indicating positioning adjustments at market open.
 
 \begin{table}[H]
 \centering
-\caption{Filtered Roll Events by Intraday Period}
+\caption{S1 Events by Intraday Period}
 \label{tab:buckets}
 \small
-\begin{tabular}{clrrrrr}
+\begin{tabular}{clrrr}
 \toprule
-\textbf{ID} & \textbf{Session} & \textbf{Evts} & \textbf{Share} & \textbf{Rate} & \textbf{Avg} & \textbf{Pref} \\
- & & & & & \textbf{Spread} & \textbf{Score} \\
+\textbf{ID} & \textbf{Session} & \textbf{Session Type} & \textbf{Events} & \textbf{Share (\%)} \\
 \midrule
-1 & 09:00 -- US Open & 80 & 9.2\% & 1.83\% & 0.0012 & 1.02 \\
-2 & 10:00 -- US Morning & 68 & 7.8\% & 1.55\% & 0.0013 & 0.73 \\
-3 & 11:00 -- US Late Morning & 80 & 9.2\% & 1.83\% & 0.0013 & 0.71 \\
-4 & 12:00 -- US Midday & 44 & 5.1\% & 1.00\% & 0.0017 & 0.58 \\
-5 & 13:00 -- US Early Afternoon & 42 & 4.8\% & 0.97\% & 0.0021 & 0.82 \\
-6 & 14:00 -- US Late Afternoon & 60 & 6.9\% & 1.40\% & 0.0030 & \textbf{1.98} \\
-7 & 15:00 -- US Close & 58 & 6.7\% & 1.37\% & 0.0031 & \textbf{1.91} \\
-8 & Late US / After-Hours & 146 & 16.8\% & 2.78\% & 0.0028 & 0.92 \\
-9 & Asia Session & 166 & 19.1\% & 3.76\% & 0.0025 & 1.54 \\
-10 & Europe Session & 124 & 14.3\% & 2.83\% & 0.0011 & 1.07 \\
+1 & 09:00 -- US Open & US Regular & 34 & 22.1 \\
+2 & 10:00 -- US Morning & US Regular & 17 & 11.0 \\
+3 & 11:00 -- US Late Morning & US Regular & 10 & 6.5 \\
+4 & 12:00 -- US Midday & US Regular & 9 & 5.8 \\
+5 & 13:00 -- US Early Afternoon & US Regular & 6 & 3.9 \\
+6 & 14:00 -- US Late Afternoon & US Regular & 3 & 1.9 \\
+7 & 15:00 -- US Close & US Regular & 1 & 0.6 \\
+8 & Late US / After-Hours & Late US & 18 & 11.7 \\
+9 & Asia Session & Asia & 27 & 17.5 \\
+10 & Europe Session & Europe & 29 & 18.8 \\
+\midrule
+\textbf{Total} & & & 154 & 100.0 \\
 \bottomrule
 \end{tabular}
 \normalsize
 \end{table}
 
+\textbf{Session aggregation}:
+\begin{itemize}[noitemsep]
+    \item \textbf{US Regular Hours} (Buckets 1--7): 77 events (50.0\%)
+    \item \textbf{Late US} (Bucket 8): 18 events (11.7\%)
+    \item \textbf{Asia} (Bucket 9): 27 events (17.5\%)
+    \item \textbf{Europe} (Bucket 10): 29 events (18.8\%)
+\end{itemize}
+
+\textbf{Interpretation}: US market hours dominate with 50\% share, but significant overnight activity (38.0\% combined Asia + Europe) suggests global institutional participation in copper rolling.
+
 \subsection{Liquidity Confirmation}
 
-After filtering, 531 of the 868 spread events (61\%) coincide with the volume-based liquidity roll signal ($V_{F2} \ge 0.8 \times V_{F1}$), and liquidity continues to lead spread detections by 0.9 business days on average. This provides independent confirmation that the remaining signals capture meaningful position transfers rather than calendar noise.
+Volume-based liquidity roll signals ($V_{F2} \ge 0.8 \times V_{F1}$) provide independent validation of spread-widening events. Daily analysis shows:
+
+\begin{table}[H]
+\centering
+\caption{Spread Widening vs. Liquidity Roll Overlap (Daily Analysis)}
+\label{tab:liquidity_overlap}
+\begin{tabular}{lrrr}
+\toprule
+\textbf{Signal} & \textbf{Events} & \textbf{Overlap} & \textbf{Rate (\%)} \\
+\midrule
+Spread widening events & 156 & 132 & 84.6 \\
+Liquidity roll triggers & 2,382 & 132 & 5.5 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Key finding}: 132 of 156 widening events (84.6\%) coincide with volume migration from F1 to F2.
+
+\textbf{Interpretation}: The 84.6\% overlap rate provides strong independent confirmation that detected spread-widening episodes capture meaningful position transfers rather than calendar noise or statistical artifacts. The high alignment suggests institutional rolling activity leaves dual footprints in both spread dynamics and volume patterns.
 
 % ===============================================
 \section{Multi-Spread Comparative Results}
@@ -821,27 +857,32 @@ The multi-spread analysis provides definitive evidence regarding the nature of d
 
 \subsection{Event Distribution Across Spreads}
 
-Applying identical detection methodology (z-score > 1.5, 20-period window, 3-hour cool-down) to all spreads reveals a consistent pattern:
+Applying identical detection methodology (z-score > 1.5, 20-period window, 3-hour cool-down) to all spreads reveals:
 
 \begin{table}[H]
 \centering
-\caption{Event Detection Across Calendar Spreads (Relative to F1 Expiry)}
-\begin{tabular}{lrrrr}
+\caption{Event Detection Across Calendar Spreads}
+\begin{tabular}{lrrr}
 \toprule
-\textbf{Spread} & \textbf{Events} & \textbf{Rate (\%)} & \textbf{Median Days to F1 Expiry} & \textbf{IQR} \\
+\textbf{Spread} & \textbf{Events} & \textbf{Rate (\%)} & \textbf{Median Days to F1 Expiry} \\
 \midrule
-S1 (F2-F1) & 2,737 & 6.16 & 28 & 16-43 \\
-S2 (F3-F2) & 2,582 & 5.81 & 27 & 16-40 \\
-S3 (F4-F3) & 2,270 & 5.11 & 26 & 14-37 \\
-S4 (F5-F4) & 1,681 & 3.78 & 22 & 13-33 \\
-S5 (F6-F5) & 839 & 1.89 & 22 & 12-32 \\
-S6 (F7-F6) & 227 & 0.51 & 21 & 11-30 \\
-S7 (F8-F7) & 20 & 0.05 & 22 & 11.5-40.25 \\
+S1 (F2-F1) & 711 & 1.60 & 20.6 \\
+S2 (F3-F2) & 1,774 & 3.99 & 14.6 \\
+S3 (F4-F3) & 874 & 1.97 & 12.3 \\
+S4 (F5-F4) & 248 & 0.56 & 11.3 \\
+S5 (F6-F5) & 19 & 0.04 & 4.8 \\
+\midrule
+S6--S11 (all) & 0 & 0.00 & -- \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\textbf{Critical Observation:} S2 and S3 exhibit event rates (5.81\% and 5.11\%) nearly identical to S1 (6.16\%), demonstrating that elevated spread widening is \emph{not} unique to the front spread.
+\textbf{Critical Observations:}
+\begin{itemize}[noitemsep]
+    \item \textbf{S2 shows highest event rate}: 3.99\% detection rate (1,774 events) substantially exceeds S1 (1.60\%), demonstrating that elevated spread widening is \emph{not} unique to the front spread
+    \item \textbf{S3 comparable to S1}: 1.97\% rate (874 events) indicates systematic activity extends deep into the curve
+    \item \textbf{S6--S11 produce zero events}: Current detection parameters (z > 1.5) are insufficiently sensitive to detect far-dated spread movements, or far spreads exhibit fundamentally lower volatility
+\end{itemize}
 
 \subsection{Timing Pattern Convergence}
 
@@ -1188,29 +1229,48 @@ The framework produces structured outputs in multiple formats:
 
 \begin{table}[H]
 \centering
-\caption{Output File Structure}
+\caption{Output File Structure (Actual Filenames)}
+\small
 \begin{tabular}{lll}
 \toprule
 \textbf{Directory} & \textbf{File} & \textbf{Description} \\
 \midrule
+\multicolumn{3}{l}{\textbf{Hourly Analysis} (\texttt{outputs/latest\_hourly/})} \\
 \texttt{panels/} & \texttt{hourly\_panel.parquet} & Aggregated OHLCV with metadata \\
- & \texttt{hourly\_panel.csv} & CSV version for accessibility \\
- & \texttt{daily\_panel.parquet} & Daily aggregation \\
-\midrule
-\texttt{roll\_signals/} & \texttt{hourly\_spread.csv} & Calendar spread series \\
- & \texttt{hourly\_widening.csv} & Event timestamps \\
- & \texttt{liquidity\_signal.csv} & Volume-based signals \\
-\midrule
-\texttt{analysis/} & \texttt{bucket\_summary.csv} & Period-level statistics \\
+\texttt{roll\_signals/} & \texttt{hourly\_spread.csv} & Calendar spread series (S1) \\
+ & \texttt{hourly\_widening.csv} & Event timestamps (711 events) \\
+ & \texttt{multi\_spreads.csv} & S1--S11 spread series \\
+ & \texttt{multi\_spread\_events.csv} & All spread events \\
+\texttt{analysis/} & \texttt{bucket\_summary.csv} & Intraday period statistics \\
+ & \texttt{spread\_signal\_comparison.csv} & Multi-spread event counts \\
+ & \texttt{spread\_timing\_summary.csv} & Days-to-expiry statistics \\
+ & \texttt{strip\_spread\_diagnostics.csv} & Classification by day \\
+ & \texttt{s1\_dominance\_by\_cycle.csv} & Dominance by expiry bucket \\
  & \texttt{preference\_scores.csv} & Event concentration metrics \\
- & \texttt{transition\_matrix.csv} & Period-to-period transitions \\
- & \texttt{daily\_widening\_summary.csv} & Daily event details \\
+ & \texttt{business\_days\_audit\_hourly.csv} & Calendar validation \\
 \midrule
-\texttt{data\_quality/} & \texttt{contract\_metrics.csv} & Per-contract quality scores \\
- & \texttt{quality\_summary.json} & Aggregate statistics \\
+\multicolumn{3}{l}{\textbf{Daily Analysis} (\texttt{outputs/latest\_daily/})} \\
+\texttt{panels/} & \texttt{hg\_panel\_filtered.parquet} & Daily OHLCV (quality filtered) \\
+ & \texttt{hg\_panel\_full\_filtered.csv} & CSV version for accessibility \\
+\texttt{roll\_signals/} & \texttt{hg\_spread\_filtered.csv} & Daily spread series \\
+ & \texttt{hg\_widening\_filtered.csv} & Daily widening events (156) \\
+ & \texttt{hg\_liquidity\_roll\_filtered.csv} & Volume-based signals (2,382) \\
+\texttt{analysis/} & \texttt{daily\_widening\_summary.csv} & Daily event details \\
+ & \texttt{business\_days\_audit\_daily.csv} & Calendar validation \\
+\texttt{data\_quality/} & \texttt{HG\_quality\_metrics.csv} & Per-contract quality scores \\
+ & \texttt{HG\_filtering\_summary.json} & Quality filter statistics \\
 \bottomrule
 \end{tabular}
+\normalsize
 \end{table}
+
+\textbf{Key observations}:
+\begin{itemize}[noitemsep]
+    \item \textbf{No \texttt{hourly\_panel.csv}}: Hourly panel exists only in Parquet format (CSV would be too large)
+    \item \textbf{Commodity-specific naming}: Daily outputs use \texttt{hg\_*} prefix for copper-specific files
+    \item \textbf{No standalone \texttt{liquidity\_signal.csv}}: Liquidity signals integrated into \texttt{hg\_liquidity\_roll\_filtered.csv}
+    \item \textbf{Multi-spread outputs}: Separate files for S1--S11 spreads and events
+\end{itemize}
 
 \subsection{Data Formats}
 
