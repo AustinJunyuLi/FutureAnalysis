@@ -66,7 +66,13 @@ This report presents a computational framework for analyzing calendar-spread dyn
 \end{abstract}
 
 \vspace{1em}
-\noindent\textbf{Version Note (v2.0, November 2024)}: This report documents the analysis framework as of version 2.0.0, which introduced deterministic expiry-based contract labeling with exact hour-precision switching at documented expiry instants (e.g., 17:00 CT for copper contracts). The methodology supersedes earlier approaches that depended on data availability for contract identification. All results presented reflect the v2.0.0 implementation, ensuring F2 becomes F1 at the precise expiry timestamp rather than at midnight boundaries or when price data first appears. The trading calendar is now a strict requirement with no weekday fallback, and all timing calculations use hour precision internally while reporting in days for readability. The legacy \texttt{selection.mode} configuration option has been removed; expiry-based labeling is now the only supported method. \textbf{Note on filtering}: All event statistics in this document are computed \emph{after} enforcing CME calendar approval, which removed 33 hourly detections and 136 daily detections from the raw signal set in this run. Strip diagnostics (Section 4.2) describe expiry dominance, but they do not filter the event counts beyond the calendar constraint.
+\noindent\textbf{Framework Highlights}\,---\,This release presents the copper roll framework as a standalone system rather than an incremental upgrade. Key characteristics:
+\begin{itemize}[noitemsep]
+    \item \textbf{Deterministic contract labeling}: F2 becomes F1 at the documented expiry instant (e.g., 17:00 CT) with full timezone/DST handling; no availability-driven heuristics remain.
+    \item \textbf{Calendar-only validation}: The CME Globex calendar is enforced end-to-end. Any detection on a closed date is discarded before downstream analysis, yielding 678 approved S1 events (out of 711 raw) and 20 daily events (out of 156 raw).
+    \item \textbf{Manifested runs}: Each analysis directory records \texttt{run\_manifest.json} with git state, hashed settings/calendars, tool versions, and CLI arguments so that every figure in this report can be reproduced exactly.
+    \item \textbf{Automated report metrics}: Tables and narratives draw directly from \texttt{presentation\_docs/report\_metrics.json}, generated from the latest outputs.
+\end{itemize}
 
 \tableofcontents
 \newpage
@@ -219,7 +225,7 @@ This metadata drives the front/next contract identification algorithm, ensuring 
 
 \subsection{Run Manifest and Reproducibility}
 
-Every analysis run now generates a machine-readable manifest at \texttt{outputs/<run>/analysis/run\_manifest.json}. The manifest records the git commit and dirty flag, SHA-256 hashes of \texttt{config/settings.yaml} and all trading calendar files, Python/pandas/numpy versions, absolute output paths, and the exact CLI arguments used. These hashes enable independent verification that the report figures were derived from the stated configuration and calendar inputs, while the timestamp (UTC) establishes an auditable trail for successive reruns.
+Every analysis run now generates a machine-readable manifest at \texttt{outputs/\allowbreak<run>/\allowbreak analysis/run\_manifest.json}. The manifest records the git commit and dirty flag, SHA-256 hashes of \texttt{config/settings.yaml} and all trading calendar files, Python/pandas/numpy versions, absolute output paths, and the exact CLI arguments used. These hashes enable independent verification that the report figures were derived from the stated configuration and calendar inputs, while the timestamp (UTC) establishes an auditable trail for successive reruns.
 
 % ===============================================
 \section{Methodology -- Technical Implementation}
