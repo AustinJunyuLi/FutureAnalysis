@@ -25,6 +25,7 @@ data:
   minute_root: "../organized_data/copper"  # Relative path - works on any machine
   timezone: "US/Central"
   price_field: "close"  # or "settle" if available
+  timestamp_format: "%Y-%m-%d %H:%M:%S"
 
 data_quality:
   filter_enabled: true          # Master switch for data filtering

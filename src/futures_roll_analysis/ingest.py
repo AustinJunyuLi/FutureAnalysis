@@ -84,6 +84,8 @@ def find_contract_files(
 def load_minutes(
     file_path: Path,
     required_columns: Iterable[str] = ("open", "high", "low", "close", "volume"),
+    *,
+    timestamp_format: Optional[str] = None,
 ) -> pd.DataFrame:
     """Load a minute-level file (CSV/Parquet) into a DataFrame indexed by timestamp."""
     file_path = file_path.resolve()
@@ -101,7 +103,10 @@ def load_minutes(
             df = pd.read_csv(file_path, header=None)
             df, ts_col = _coerce_minute_dataframe(df)
 
-    df[ts_col] = pd.to_datetime(df[ts_col], utc=False, errors="coerce")
+    parse_kwargs = {"errors": "coerce"}
+    if timestamp_format:
+        parse_kwargs["format"] = timestamp_format
+    df[ts_col] = pd.to_datetime(df[ts_col], utc=False, **parse_kwargs)
     df = df.dropna(subset=[ts_col])
     df = df.set_index(ts_col).sort_index()
 
@@ -169,6 +174,7 @@ def build_contract_frames(
     root_symbol: str,
     tz: str,
     aggregate: str,
+    timestamp_format: Optional[str] = None,
     regex: Optional[Pattern[str]] = None,
 ) -> Dict[str, pd.DataFrame]:
     """
@@ -203,7 +209,7 @@ def build_contract_frames(
         if not contract:
             continue
         try:
-            minutes = load_minutes(path)
+            minutes = load_minutes(path, timestamp_format=timestamp_format)
             aggregated = aggregator(minutes, tz=tz)
         except Exception as exc:  # pragma: no cover - defensive logging hook
             LOGGER.warning("Failed to process %s: %s", path, exc)

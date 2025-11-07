@@ -24,6 +24,7 @@ class Settings:
     business_days: Dict[str, Any]
     output_dir: Path
     metadata_path: Path
+    settings_path: Path
 
 
 def _resolve_path(value: Optional[str], base_path: Path) -> Optional[Path]:
@@ -118,6 +119,7 @@ def load_settings(
         business_days=business_days_cfg,
         output_dir=output_dir,
         metadata_path=metadata_path,
+        settings_path=settings_path,
     )
 
 

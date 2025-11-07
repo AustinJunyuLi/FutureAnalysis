@@ -1,6 +1,11 @@
 from __future__ import annotations
 
 import logging
+import hashlib
+import json
+import subprocess
+import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, Iterable, Optional
 
@@ -51,11 +56,13 @@ def run_bucket_analysis(
         raise FileNotFoundError(f"No {root_symbol} files found under {data_root}")
 
     tz = settings.data.get("timezone", "US/Central")
+    ts_format = settings.data.get("timestamp_format")
     buckets = build_contract_frames(
         files,
         root_symbol=root_symbol,
         tz=tz,
         aggregate="bucket",
+        timestamp_format=ts_format,
     )
     if not buckets:
         raise RuntimeError("Bucket aggregation returned no data")
@@ -67,7 +74,9 @@ def run_bucket_analysis(
 
     # Use deterministic expiry-based labeling
     tz_ex = (settings.time or {}).get("tz_exchange", "America/Chicago")
-    chain = identify_front_to_f12(panel, expiry_map, tz_exchange=tz_ex, max_contracts=12)
+    strip_cfg = settings.strip_analysis or {}
+    strip_length = int(strip_cfg.get("strip_length", 12))
+    chain = identify_front_to_f12(panel, expiry_map, tz_exchange=tz_ex, max_contracts=strip_length)
     # Construct front/next from chain
     front_next = chain.loc[:, ["F1", "F2"]].rename(columns={"F1": "front_contract", "F2": "next_contract"})
 
@@ -91,6 +100,7 @@ def run_bucket_analysis(
         abs_min=spread_cfg.get("abs_min"),
         cool_down=cool_down,
     )
+    widening = widening.astype(bool)
 
     strip_cfg = settings.strip_analysis or {}
 
@@ -123,65 +133,6 @@ def run_bucket_analysis(
     contract_chain = chain
     LOGGER.info(f"Contract chain identified: {len(contract_chain)} periods × {len(contract_chain.columns)} contracts")
 
-    multi_spreads = compute_multi_spreads(
-        panel,
-        contract_chain,
-        price_field=settings.data.get("price_field", "close"),
-    )
-    LOGGER.info(f"Multi-spreads computed: {multi_spreads.shape}")
-
-    multi_events = detect_multi_spread_events(
-        multi_spreads,
-        method=spread_cfg.get("method", "zscore"),
-        window=spread_cfg.get("window_buckets", spread_cfg.get("window", 30)),
-        z_threshold=spread_cfg.get("z_threshold", 1.5),
-        abs_min=spread_cfg.get("abs_min"),
-        cool_down=cool_down,
-    )
-    LOGGER.info(f"Multi-spread events detected: {multi_events.sum().sum()} total events across all spreads")
-
-    # Comparative analysis
-    spread_correlations = multi_spread_analysis.compute_spread_correlations(multi_spreads)
-    spread_comparison = multi_spread_analysis.compare_spread_signals(multi_spreads, multi_events)
-    spread_timing = multi_spread_analysis.analyze_spread_timing(
-        multi_spreads,
-        multi_events,
-        contract_chain,
-        expiry_map,
-        tz_exchange=tz_ex,
-    )
-    timing_summary = multi_spread_analysis.summarize_timing_by_spread(spread_timing)
-    spread_changes = multi_spread_analysis.analyze_spread_changes(multi_spreads)
-
-    # Cross-spread magnitude comparison (supervisor's specific request)
-    LOGGER.info("Computing cross-spread magnitude comparison (S1 vs S2-S11)...")
-    magnitude_comp = multi_spread_analysis.compare_spread_magnitudes(multi_spreads)
-    s1_dominance_by_cycle = multi_spread_analysis.analyze_s1_dominance_by_expiry_cycle(
-        magnitude_comp, contract_chain, expiry_map
-    )
-    cross_spread_summary = multi_spread_analysis.summarize_cross_spread_patterns(s1_dominance_by_cycle)
-
-    LOGGER.info(f"S1 dominance analysis complete: {magnitude_comp['s1_dominates'].sum()} periods where S1 > 2x median(S2-S11)")
-    LOGGER.info(f"S1 events: {multi_events['S1_events'].sum()}, "
-                f"S2 events: {multi_events['S2_events'].sum()}, "
-                f"S3 events: {multi_events['S3_events'].sum()}")
-
-    strip_diagnostics = pd.DataFrame()
-    if strip_cfg.get("enabled", True):
-        strip_diagnostics = strip_tools.summarize_strip_dominance(
-            magnitude_comp,
-            contract_chain,
-            expiry_map,
-            calendar=calendar,
-            dominance_threshold=strip_cfg.get("dominance_ratio_threshold", 2.0),
-            expiry_window_bd=strip_cfg.get("expiry_window_business_days", 18),
-        )
-        if strip_cfg.get("filter_expiry_dominance", True):
-            widened_before = int(widening.sum())
-            widening, removed = strip_tools.filter_expiry_dominance_events(widening, strip_diagnostics)
-            if removed:
-                LOGGER.info("Filtered %s widening events classified as expiry dominance (from %s)", removed, widened_before)
-
     # Always compute business days (business-day-only pipeline)
     business_days_index = None
     business_days_audit = None
@@ -211,6 +162,99 @@ def run_bucket_analysis(
     if align_policy and business_days_index is not None:
         widening = align_events_to_business_days(widening, business_days_index, policy=align_policy)
 
+    approved_mask = None
+    if business_days_audit is not None:
+        approved_dates = pd.to_datetime(
+            business_days_audit.loc[business_days_audit["data_approved"].fillna(False), "date"]
+        ).dt.normalize()
+        approved_set = set(approved_dates)
+        event_dates = pd.to_datetime(widening.index).normalize()
+        approved_mask = pd.Series(event_dates.isin(approved_set), index=widening.index)
+        if approved_mask.notna().any():
+            invalid = int((widening.astype(bool) & ~approved_mask).sum())
+            if invalid:
+                LOGGER.info("Dropping %s widening events outside approved business days", invalid)
+            widening = widening & approved_mask.fillna(False)
+        else:
+            LOGGER.warning("No approved business days detected; suppressing all widening events")
+            widening = widening & False
+
+    LOGGER.info("Computing multi-spread analysis (F1-F12, S1-S11)...")
+    multi_spreads = compute_multi_spreads(
+        panel,
+        chain,
+        price_field=settings.data.get("price_field", "close"),
+    )
+    LOGGER.info(f"Multi-spreads computed: {multi_spreads.shape}")
+
+    multi_events = detect_multi_spread_events(
+        multi_spreads,
+        method=spread_cfg.get("method", "zscore"),
+        window=spread_cfg.get("window_buckets", spread_cfg.get("window", 30)),
+        z_threshold=spread_cfg.get("z_threshold", 1.5),
+        abs_min=spread_cfg.get("abs_min"),
+        cool_down=cool_down,
+    )
+    if approved_mask is not None:
+        mask = approved_mask.reindex(multi_events.index, fill_value=False)
+        mask_df = pd.DataFrame(
+            np.broadcast_to(mask.to_numpy()[:, None], multi_events.shape),
+            index=multi_events.index,
+            columns=multi_events.columns,
+        )
+        multi_events = multi_events.where(mask_df, False)
+    LOGGER.info(f"Multi-spread events detected: {multi_events.sum().sum()} total events across all spreads")
+
+    event_counts = multi_events.sum()
+    zero_spreads = [col.replace("_events", "") for col, val in event_counts.items() if val == 0]
+    if zero_spreads:
+        LOGGER.warning(
+            "No detections for spreads: %s. Consider reducing strip_analysis.strip_length or reviewing data coverage.",
+            ", ".join(zero_spreads),
+        )
+
+    spread_correlations = multi_spread_analysis.compute_spread_correlations(multi_spreads)
+    spread_comparison = multi_spread_analysis.compare_spread_signals(multi_spreads, multi_events)
+    spread_timing = multi_spread_analysis.analyze_spread_timing(
+        multi_spreads,
+        multi_events,
+        chain,
+        expiry_map,
+        tz_exchange=tz_ex,
+    )
+    timing_summary = multi_spread_analysis.summarize_timing_by_spread(spread_timing)
+    spread_changes = multi_spread_analysis.analyze_spread_changes(multi_spreads)
+
+    LOGGER.info("Computing cross-spread magnitude comparison (S1 vs S2-S11)...")
+    magnitude_comp = multi_spread_analysis.compare_spread_magnitudes(multi_spreads)
+    s1_dominance_by_cycle = multi_spread_analysis.analyze_s1_dominance_by_expiry_cycle(
+        magnitude_comp, chain, expiry_map
+    )
+    cross_spread_summary = multi_spread_analysis.summarize_cross_spread_patterns(s1_dominance_by_cycle)
+
+    LOGGER.info(
+        "S1 events: %s, S2 events: %s, S3 events: %s",
+        multi_events["S1_events"].sum(),
+        multi_events["S2_events"].sum(),
+        multi_events["S3_events"].sum(),
+    )
+
+    strip_diagnostics = pd.DataFrame()
+    if strip_cfg.get("enabled", True):
+        strip_diagnostics = strip_tools.summarize_strip_dominance(
+            magnitude_comp,
+            chain,
+            expiry_map,
+            calendar=calendar,
+            dominance_threshold=strip_cfg.get("dominance_ratio_threshold", 2.0),
+            expiry_window_bd=strip_cfg.get("expiry_window_business_days", 18),
+        )
+        if strip_cfg.get("filter_expiry_dominance", True):
+            widened_before = int(widening.sum())
+            widening, removed = strip_tools.filter_expiry_dominance_events(widening, strip_diagnostics)
+            if removed:
+                LOGGER.info("Filtered %s widening events classified as expiry dominance (from %s)", removed, widened_before)
+
     bucket_summary = summarize_bucket_events(
         widening,
         spread,
@@ -218,6 +262,7 @@ def run_bucket_analysis(
         bucket_labels=labels,
         sessions=sessions,
     )
+    session_summary = _session_event_summary(bucket_summary)
     preference = preference_scores(widening, volume_series, bucket_ids)
     transitions = transition_matrix(widening, bucket_ids)
     event_summary = summarize_events(widening, spread, business_days=business_days_index)
@@ -235,6 +280,7 @@ def run_bucket_analysis(
     _write_csv(widening, signals_dir / "hourly_widening.csv", header=True)
 
     _write_csv(bucket_summary, analysis_dir / "bucket_summary.csv", index=False)
+    _write_csv(session_summary, analysis_dir / "session_event_summary.csv", index=False)
     _write_csv(preference, analysis_dir / "preference_scores.csv", header=True)
     _write_csv(transitions, analysis_dir / "transition_matrix.csv")
     if business_days_audit is not None:
@@ -266,6 +312,12 @@ def run_bucket_analysis(
     LOGGER.info("Multi-spread analysis outputs written successfully")
 
     _write_run_settings(settings, analysis_dir / "run_settings.json")
+    manifest = _build_run_manifest(
+        settings=settings,
+        calendar_paths=settings.business_days.get("calendar_paths", []),
+        output_dir=out_dir,
+    )
+    _write_manifest(manifest, analysis_dir / "run_manifest.json")
     LOGGER.info(
         "Bucket analysis complete: rows=%s events=%s",
         len(panel),
@@ -296,11 +348,13 @@ def run_daily_analysis(
         raise FileNotFoundError(f"No {root_symbol} files found under {data_root}")
 
     tz = settings.data.get("timezone", "US/Central")
+    ts_format = settings.data.get("timestamp_format")
     daily = build_contract_frames(
         files,
         root_symbol=root_symbol,
         tz=tz,
         aggregate="daily",
+        timestamp_format=ts_format,
     )
 
     metadata = _load_metadata(metadata_path or settings.metadata_path, daily.keys())
@@ -335,6 +389,7 @@ def run_daily_analysis(
         abs_min=spread_cfg.get("abs_min"),
         cool_down=int(cool_down) if cool_down else None,
     )
+    widening = widening.astype(bool)
 
     liquidity = compute_liquidity_signal(
         panel,
@@ -390,6 +445,18 @@ def run_daily_analysis(
     if align_policy and business_days_index is not None:
         widening = align_events_to_business_days(widening, business_days_index, policy=align_policy)
 
+    if business_days_audit is not None:
+        approved_dates = pd.to_datetime(
+            business_days_audit.loc[business_days_audit["data_approved"].fillna(False), "date"]
+        ).dt.normalize()
+        approved_set = set(approved_dates)
+        event_dates = pd.to_datetime(widening.index).normalize()
+        approved_mask = pd.Series(event_dates.isin(approved_set), index=widening.index)
+        invalid = int((widening & ~approved_mask).sum())
+        if invalid:
+            LOGGER.info("Dropping %s daily widening events outside approved business days", invalid)
+        widening = widening & approved_mask.fillna(False)
+
     summary = summarize_events(widening, spread, business_days=business_days_index)
 
     out_dir = (output_dir or settings.output_dir).resolve()
@@ -411,6 +478,12 @@ def run_daily_analysis(
     if business_days_audit is not None:
         _write_csv(business_days_audit, analysis_dir / "business_days_audit_daily.csv", index=False)
     _write_run_settings(settings, analysis_dir / "run_settings.json")
+    manifest = _build_run_manifest(
+        settings=settings,
+        calendar_paths=settings.business_days.get("calendar_paths", []),
+        output_dir=out_dir,
+    )
+    _write_manifest(manifest, analysis_dir / "run_manifest.json")
 
     LOGGER.info(
         "Daily analysis complete: rows=%s events=%s",
@@ -472,8 +545,24 @@ def _write_csv(obj: pd.DataFrame | pd.Series, path: Path, **kwargs) -> None:
     obj.to_csv(path, **kwargs)
 
 
+def _session_event_summary(bucket_summary: pd.DataFrame) -> pd.DataFrame:
+    if bucket_summary.empty or "session" not in bucket_summary.columns:
+        return pd.DataFrame(columns=["session", "event_count", "event_share_pct"])
+
+    total_events = float(bucket_summary["event_count"].sum())
+    grouped = (
+        bucket_summary.groupby("session", as_index=False)["event_count"].sum()
+        .sort_values("event_count", ascending=False)
+        .reset_index(drop=True)
+    )
+    if total_events > 0:
+        grouped["event_share_pct"] = grouped["event_count"] / total_events * 100.0
+    else:
+        grouped["event_share_pct"] = 0.0
+    return grouped
+
+
 def _write_run_settings(settings: cfg.Settings, path: Path) -> None:
-    import json
     payload = {
         "products": list(settings.products),
         "data": settings.data,
@@ -514,3 +603,76 @@ def _write_switch_log(f1_series: pd.Series, expiry_map: pd.Series, tz_exchange: 
         )
     if rows:
         pd.DataFrame(rows).to_csv(out_path, index=False)
+
+
+def _sha256_file(path: Path) -> Optional[str]:
+    try:
+        with path.open("rb") as fh:
+            digest = hashlib.sha256()
+            for chunk in iter(lambda: fh.read(8192), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+    except FileNotFoundError:
+        return None
+
+
+def _git_metadata() -> Dict[str, Optional[str]]:
+    info: Dict[str, Optional[str]] = {"commit": None, "dirty": None}
+    try:
+        commit = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        status = subprocess.run(
+            ["git", "status", "--porcelain"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        info["commit"] = commit
+        info["dirty"] = str(bool(status))
+    except Exception:
+        pass
+    return info
+
+
+def _build_run_manifest(
+    *,
+    settings: cfg.Settings,
+    calendar_paths: Iterable[Path],
+    output_dir: Path,
+) -> Dict[str, Any]:
+    calendar_entries = []
+    for path in calendar_paths:
+        if not path:
+            continue
+        calendar_entries.append(
+            {
+                "path": str(path),
+                "sha256": _sha256_file(path),
+            }
+        )
+
+    manifest = {
+        "timestamp_utc": datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
+        "git": _git_metadata(),
+        "python": sys.version.split()[0],
+        "packages": {
+            "pandas": pd.__version__,
+            "numpy": np.__version__,
+        },
+        "settings": {
+            "path": str(settings.settings_path),
+            "sha256": _sha256_file(settings.settings_path),
+        },
+        "calendars": calendar_entries,
+        "output_dir": str(output_dir),
+        "argv": sys.argv,
+    }
+    return manifest
+
+
+def _write_manifest(manifest: Dict[str, Any], path: Path) -> None:
+    path.write_text(json.dumps(manifest, indent=2))
