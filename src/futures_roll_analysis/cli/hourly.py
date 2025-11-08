@@ -21,7 +21,6 @@ def main(argv: Optional[list[str]] = None) -> int:
     )
     parser.add_argument("--root", help="Override minute data root directory.")
     parser.add_argument("--metadata", help="Override metadata CSV path.")
-    parser.add_argument("--output-dir", help="Directory for outputs.")
     parser.add_argument("--max-files", type=int, help="Limit number of files for quick runs.")
     parser.add_argument("--log-level", default="INFO", help="Logging level (INFO, DEBUG, ...).")
     args = parser.parse_args(argv)
@@ -33,8 +32,6 @@ def main(argv: Optional[list[str]] = None) -> int:
         overrides.setdefault("data", {})["minute_root"] = args.root
     if args.metadata:
         overrides.setdefault("metadata", {})["contracts"] = args.metadata
-    if args.output_dir:
-        overrides["output_dir"] = args.output_dir
 
     settings = load_settings(Path(args.settings), overrides=overrides or None)
 
@@ -42,7 +39,6 @@ def main(argv: Optional[list[str]] = None) -> int:
         settings,
         max_files=args.max_files,
         metadata_path=Path(args.metadata) if args.metadata else None,
-        output_dir=Path(args.output_dir) if args.output_dir else None,
     )
 
     LOGGER.info("Hourly analysis finished.")

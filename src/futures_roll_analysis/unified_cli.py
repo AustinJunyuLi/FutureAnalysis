@@ -20,6 +20,8 @@ import pandas as pd
 
 from . import analysis
 from .config import load_settings
+from .reporting import generate_report
+from .results import AnalysisBundle
 
 LOGGER = logging.getLogger(__name__)
 
@@ -37,9 +39,6 @@ def analyze_command(args: argparse.Namespace) -> int:
         overrides.setdefault("data", {})["minute_root"] = args.root
     if args.metadata:
         overrides.setdefault("metadata", {})["contracts"] = args.metadata
-    if args.output_dir:
-        overrides["output_dir"] = args.output_dir
-    
     if hasattr(args, "calendar") and args.calendar:
         overrides.setdefault("business_days", {})["calendar_paths"] = [args.calendar]
     
@@ -50,21 +49,30 @@ def analyze_command(args: argparse.Namespace) -> int:
     kwargs = {
         "settings": settings,
         "metadata_path": Path(args.metadata) if args.metadata else None,
-        "output_dir": Path(args.output_dir) if args.output_dir else None,
     }
     
-    # Run appropriate analysis
-    if args.mode == "hourly":
+    bucket_result = None
+    daily_result = None
+    
+    if args.mode in {"hourly", "all"}:
         if hasattr(args, "max_files") and args.max_files:
             kwargs["max_files"] = args.max_files
-        analysis.run_bucket_analysis(**kwargs)
+        bucket_result = analysis.run_bucket_analysis(**kwargs)
+        kwargs.pop("max_files", None)
         LOGGER.info("Hourly analysis finished.")
-    elif args.mode == "daily":
-        analysis.run_daily_analysis(**kwargs)
+    
+    if args.mode in {"daily", "all"}:
+        daily_result = analysis.run_daily_analysis(**kwargs)
         LOGGER.info("Daily analysis finished.")
-    else:
+    
+    if args.mode not in {"hourly", "daily", "all"}:
         LOGGER.error(f"Unknown mode: {args.mode}")
         return 1
+    
+    bundle = AnalysisBundle(bucket=bucket_result, daily=daily_result)
+    if not args.skip_report:
+        generate_report(bundle, settings, Path(args.report_path))
+        LOGGER.info("Rendered consolidated report to %s", args.report_path)
     
     return 0
 
@@ -142,9 +150,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     )
     analyze_parser.add_argument(
         "--mode",
-        choices=["hourly", "daily"],
+        choices=["hourly", "daily", "all"],
         required=True,
-        help="Analysis mode: hourly (bucket) or daily aggregation"
+        help="Analysis mode: hourly, daily, or all (both sequentially)"
     )
     analyze_parser.add_argument(
         "--settings",
@@ -161,12 +169,25 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     )
     analyze_parser.add_argument(
         "--output-dir",
-        help="Directory for outputs"
+        help=argparse.SUPPRESS
     )
     analyze_parser.add_argument(
         "--max-files",
         type=int,
         help="Limit number of files for quick runs (hourly mode only)"
+    )
+    analyze_parser.add_argument(
+        "--report-path",
+        default="presentation_docs/technical_implementation_report.tex",
+        help=(
+            "Path to the LaTeX report to overwrite "
+            "(default: presentation_docs/technical_implementation_report.tex)"
+        ),
+    )
+    analyze_parser.add_argument(
+        "--skip-report",
+        action="store_true",
+        help="Skip report generation"
     )
     analyze_parser.add_argument(
         "--log-level",

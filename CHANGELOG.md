@@ -1,15 +1,21 @@
-## 2.0.0 (2025-11-06) - Major: Expiry-Based Labeling
+## 2025-11-07 – Streamlined Reporting
+
+- **Single deliverable:** Removed all CSV/Parquet manifest outputs. `run_bucket_analysis()` and `run_daily_analysis()` now return structured results instead of writing to `outputs/`.
+- **Automated LaTeX report:** Added `futures_roll_analysis.reporting.generate_report()` which renders a consolidated LaTeX report to a configurable path (`--report-path`, default: `presentation_docs/technical_implementation_report.tex`).
+- **Unified CLI update:** `--mode all` executes hourly and daily pipelines sequentially. `--output-dir` has been retired; the only persistent artifact is the refreshed LaTeX report.
+- **Repository cleanup:** Removed `outputs/` artifacts, intermediate audit scripts, and stale email attachments. The `presentation_docs/Makefile` now invokes the consolidated analysis before compiling the PDF.
+- **Data quality integration:** Daily analysis retains contract-quality diagnostics in-memory and surfaces them in the report instead of writing JSON/CSV summaries.
+
+## 2025-11-06 – Deterministic Expiry-Based Labeling
 
 **BREAKING CHANGES:**
 
-- **Contract Labeling**: Removed legacy v1 labeler. Now uses deterministic expiry-based switching exclusively
+- **Contract Labeling**: Legacy availability-driven labeler removed. The framework now uses deterministic expiry-based switching exclusively
   - F2 becomes F1 **exactly at expiry instant** (supervisor requirement)
-  - No more `selection.mode` config option - expiry-based labeling is always used
-  - Removed `identify_front_next()` and `identify_front_to_f12()` legacy functions
-  - Renamed `identify_front_next_v2` → `identify_front_next` (canonical)
-  - Renamed `identify_front_to_f12_v2` → `identify_front_to_f12` (canonical)
+  - `selection.mode` config option removed – expiry-based labeling is always used
+  - Deterministic helpers formerly exported as `_v2` now live at `identify_front_next` / `identify_front_to_f12`
 
-- **Required Calendar**: Trading calendar is now **mandatory**
+- **Required Calendar**: Trading calendar is **mandatory**
   - Config validation fails fast if `business_days.calendar_paths` is empty or files missing
   - Defaults to strict calendar-only mode (no weekday fallback)
   - Advanced `fallback_policy` options still available but not recommended for production

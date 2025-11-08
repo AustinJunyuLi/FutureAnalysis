@@ -1,5 +1,7 @@
 # F1/F2 Labeling Fix - Implementation Plan & Tracking
 
+*Historical reference: this document captures the pre–November 2025 migration from the legacy availability-based pipeline to the current deterministic framework.*
+
 **Date**: 2025-11-06
 **Issue**: Supervisor feedback - "F1 should appear at exactly the same time as the previous one expires"
 **Status**: IN PROGRESS

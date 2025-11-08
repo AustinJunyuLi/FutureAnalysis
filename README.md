@@ -44,18 +44,33 @@ conda activate futures-roll 2>/dev/null || true
 The project provides a single command-line interface with subcommands:
 
 ```bash
-# Run hourly (bucket) analysis
-futures-roll analyze --mode hourly --settings config/settings.yaml
+# Run consolidated hourly+daily analysis (optionally write a tech report)
+futures-roll analyze --mode all --settings config/settings.yaml \
+  --report-path presentation_docs/technical_implementation_report.tex
 
-# Run daily analysis with data quality filtering
-futures-roll analyze --mode daily --settings config/settings.yaml
+# Hourly-only stress test with limited inputs
+futures-roll analyze --mode hourly --settings config/settings.yaml \
+  --max-files 5 --report-path presentation_docs/technical_implementation_report.tex
 
 # Organize raw data files by commodity
-futures-roll organize --source raw_data --destination organized_data
-
-# Quick test with limited files
-futures-roll analyze --mode hourly --max-files 5 --output-dir outputs/test
+futures-roll organize --source raw_data --destination organized_data --dry-run
 ```
+
+### Methodology Highlights
+
+- **Deterministic expiry-based strip labeling** ensures F2 becomes F1 at the documented expiry instant (17:00 CT), independent of data availability.
+- **Strict CME calendar enforcement** rejects weekday fallbacks and requires valid `business_days.calendar_paths`, guaranteeing proper treatment of partial/holiday sessions.
+- **Hour-precision timing** replaces `.dt.days` arithmetic throughout `trading_days.py`, so business-day audits and near-expiry relaxations operate at the correct intraday resolution.
+- Reports: two LaTeX sources live in `presentation_docs/` — `analytical_results_report.tex` (narrative results) and `technical_implementation_report.tex` (auto-generated option via CLI).
+
+### Report Generation
+
+- Build PDFs from `presentation_docs/` using the new Makefile:
+  - `make assets` to (re)generate figures in `outputs/exploratory/`
+  - `make results` to compile `analytical_results_report.pdf`
+  - `make tech` to compile `technical_implementation_report.pdf`
+  - `make view-results` or `make view-tech` to open the PDFs
+  The CLI can also render a tech report to a path via `--report-path`.
 
 ### Command Options
 
@@ -134,7 +149,7 @@ business_days:
 Validate one or more calendar CSVs and emit a JSON report:
 
 ```bash
-futures-roll-cal-lint metadata/calendars/cme_globex_holidays.csv --json outputs/calendar_lint.json
+futures-roll-cal-lint metadata/calendars/cme_globex_holidays.csv
 ```
 
 ### Event Detection Options
@@ -165,16 +180,7 @@ futures_individual_contracts_1min/
 │   └── settings.yaml       # Main configuration
 ├── metadata/               # Contract metadata CSVs
 ├── organized_data/         # Minute data by commodity
-├── outputs/                # Analysis outputs
-│   ├── panels/            # Multi-contract panels
-│   ├── roll_signals/      # Spread and roll signals
-│   ├── analysis/          # Summaries and matrices
-│   └── data_quality/      # Quality metrics
-└── scripts/
-    ├── analysis/           # Exploratory and one-off analysis scripts
-    │   ├── contract_month_analysis.py
-    │   ├── term_structure_*.py
-    │   └── volume_crossover.py
+└── scripts/                # Utility helpers (setup, validation)
     ├── setup/              # Environment setup and maintenance
     │   ├── setup_env.sh
     │   └── cleanup.sh
@@ -269,7 +275,7 @@ source scripts/setup/setup_env.sh
 
 For detailed implementation notes and analysis methodology, see:
 - [`AGENTS.md`](AGENTS.md): Repository guidelines, architecture, and development standards
-- [`presentation_docs/analysis_report.pdf`](presentation_docs/analysis_report.pdf): Complete methodology documentation
+- Reports are compiled under `presentation_docs/` via the Makefile targets described above.
 
 ## License
 

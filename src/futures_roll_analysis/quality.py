@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import json
 import logging
 import re
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Dict, Iterable, List, Tuple
 
 import numpy as np
@@ -138,27 +136,6 @@ class DataQualityFilter:
                 return df[df.index >= window_slice.index[0]]
         return df
 
-    @staticmethod
-    def save_reports(metrics: List[dict], output_dir: Path, commodity: str) -> None:
-        if not metrics:
-            return
-        output_dir.mkdir(parents=True, exist_ok=True)
-        metrics_df = pd.DataFrame(metrics)
-        metrics_csv = output_dir / f"{commodity}_quality_metrics.csv"
-        metrics_csv.unlink(missing_ok=True)
-        metrics_df.to_csv(metrics_csv, index=False)
-        summary = {
-            "commodity": commodity,
-            "total_contracts": len(metrics),
-            "excluded": int((metrics_df["status"] == "EXCLUDED").sum()),
-            "included": int((metrics_df["status"] == "INCLUDED").sum()),
-        }
-        summary_path = output_dir / f"{commodity}_filtering_summary.json"
-        summary_path.unlink(missing_ok=True)
-        summary_path.write_text(
-            json.dumps(summary, indent=2),
-            encoding="utf-8",
-        )
 def _extract_year(contract: str) -> int:
     match = re.search(r"[A-Z]+(\d{2,4})$", contract)
     if not match:

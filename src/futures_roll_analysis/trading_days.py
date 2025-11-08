@@ -49,8 +49,22 @@ def load_calendar(
             raise ValueError(f"Calendar {resolved} missing 'date' column")
 
         df = df.copy()
+        original_count = len(df)
         df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.normalize()
+        invalid_dates = df["date"].isna().sum()
+        if invalid_dates > 0:
+            LOGGER.warning(
+                "Calendar %s: %d invalid date(s) found and will be skipped",
+                resolved.name,
+                invalid_dates,
+            )
         df = df.dropna(subset=["date"]).reset_index(drop=True)
+        if df.empty:
+            LOGGER.warning("Calendar %s: no valid dates after parsing", resolved.name)
+            # Still include empty calendar to maintain expected behavior
+            empty_calendar = pd.DataFrame(columns=["date", "holiday_name", "session_note", "partial_hours", "is_trading_day"])
+            calendars.append(empty_calendar)
+            continue
 
         for column in ("holiday_name", "session_note", "partial_hours"):
             if column not in df.columns:
@@ -468,6 +482,26 @@ def compute_business_days(
         len(data_set),
         len(final_set),
     )
+
+    # Warn if final set is empty
+    if len(final_set) == 0:
+        if len(calendar_set) == 0:
+            LOGGER.warning(
+                "No business days computed: calendar contains no trading days in observed date range. "
+                "Check that calendar file covers the data period."
+            )
+        elif len(data_set) == 0:
+            LOGGER.warning(
+                "No business days computed: all dates failed data quality checks. "
+                "This may indicate insufficient data coverage or overly strict thresholds. "
+                "Consider reviewing min_total_buckets, min_us_buckets, or volume_threshold settings."
+            )
+        else:
+            LOGGER.warning(
+                f"No business days computed with fallback_policy='{fallback_policy}'. "
+                f"Calendar: {len(calendar_set)} days, Data approved: {len(data_set)} days, "
+                f"but no intersection/union produced valid days."
+            )
 
     # Attach helpful audit columns
     summary["coverage_ok"] = coverage_ok.values

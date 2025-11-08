@@ -1,13 +1,8 @@
 from __future__ import annotations
 
 import logging
-import hashlib
-import json
-import subprocess
-import sys
-from datetime import datetime
 from pathlib import Path
-from typing import Dict, Iterable, Optional
+from typing import Iterable, Optional
 
 import numpy as np
 import pandas as pd
@@ -36,6 +31,7 @@ from .rolls import (
     identify_front_to_f12,
 )
 from . import multi_spread_analysis
+from .results import BucketAnalysisResult, DailyAnalysisResult
 
 LOGGER = logging.getLogger(__name__)
 
@@ -45,8 +41,7 @@ def run_bucket_analysis(
     *,
     max_files: Optional[int] = None,
     metadata_path: Optional[Path] = None,
-    output_dir: Optional[Path] = None,
-) -> Dict[str, Path]:
+) -> BucketAnalysisResult:
     root_symbol = settings.products[0]
     data_root = Path(settings.data["minute_root"])
     files = find_contract_files(data_root, root_symbol=root_symbol)
@@ -154,8 +149,13 @@ def run_bucket_analysis(
             )
             business_days_index, business_days_audit = result
             LOGGER.info(f"Business days computed: {len(business_days_index)} days")
+        except (ValueError, KeyError) as e:
+            # Configuration or data structure errors - these are acceptable to catch
+            LOGGER.warning(f"Business day computation failed due to configuration issue: {e}")
         except Exception as e:
-            LOGGER.warning(f"Business day computation failed: {e}.")
+            # Unexpected errors - log with full context and re-raise
+            LOGGER.error(f"Unexpected error in business day computation: {e}", exc_info=True)
+            raise RuntimeError(f"Business day computation encountered unexpected error: {e}") from e
 
     # Optional alignment of events to business days for summary/reporting
     align_policy = settings.business_days.get("align_events", "none")
@@ -267,80 +267,36 @@ def run_bucket_analysis(
     transitions = transition_matrix(widening, bucket_ids)
     event_summary = summarize_events(widening, spread, business_days=business_days_index)
 
-    out_dir = (output_dir or settings.output_dir).resolve()
-    panels_dir = out_dir / "panels"
-    signals_dir = out_dir / "roll_signals"
-    analysis_dir = out_dir / "analysis"
-    for path in (panels_dir, signals_dir, analysis_dir):
-        path.mkdir(parents=True, exist_ok=True)
-
-    panel_path = panels_dir / "hourly_panel.parquet"
-    _write_parquet(panel, panel_path)
-    _write_csv(spread, signals_dir / "hourly_spread.csv", header=True)
-    _write_csv(widening, signals_dir / "hourly_widening.csv", header=True)
-
-    _write_csv(bucket_summary, analysis_dir / "bucket_summary.csv", index=False)
-    _write_csv(session_summary, analysis_dir / "session_event_summary.csv", index=False)
-    _write_csv(preference, analysis_dir / "preference_scores.csv", header=True)
-    _write_csv(transitions, analysis_dir / "transition_matrix.csv")
-    if business_days_audit is not None:
-        _write_csv(business_days_audit, analysis_dir / "business_days_audit_hourly.csv", index=False)
-    _write_csv(event_summary, analysis_dir / "hourly_widening_summary.csv", index=False)
-
-    # Write multi-spread analysis outputs
-    _write_csv(multi_spreads, signals_dir / "multi_spreads.csv", header=True)
-    _write_csv(multi_events, signals_dir / "multi_spread_events.csv", header=True)
-    _write_csv(spread_correlations, analysis_dir / "spread_correlations.csv")
-    _write_csv(spread_comparison, analysis_dir / "spread_signal_comparison.csv", index=False)
-    _write_csv(spread_timing, analysis_dir / "spread_event_timing.csv", index=False)
-    _write_csv(timing_summary, analysis_dir / "spread_timing_summary.csv", index=False)
-    _write_csv(spread_changes, analysis_dir / "spread_change_statistics.csv", index=False)
-
-    # Write switch log for F1 transitions
-    try:
-        _write_switch_log(contract_chain["F1"], expiry_map, tz_ex, analysis_dir / "roll_switches.csv")
-    except Exception as e:
-        LOGGER.warning("Failed to write roll_switches.csv: %s", e)
-
-    # Write cross-spread magnitude comparison outputs
-    _write_csv(magnitude_comp, analysis_dir / "s1_vs_others_magnitude.csv", header=True)
-    _write_csv(s1_dominance_by_cycle, analysis_dir / "s1_dominance_by_cycle.csv", index=False)
-    _write_csv(cross_spread_summary, analysis_dir / "cross_spread_summary.csv", index=False)
-    if not strip_diagnostics.empty:
-        _write_csv(strip_diagnostics, analysis_dir / "strip_spread_diagnostics.csv", index=False)
-
-    LOGGER.info("Multi-spread analysis outputs written successfully")
-
-    _write_run_settings(settings, analysis_dir / "run_settings.json")
-    manifest = _build_run_manifest(
-        settings=settings,
-        calendar_paths=settings.business_days.get("calendar_paths", []),
-        output_dir=out_dir,
-    )
-    _write_manifest(manifest, analysis_dir / "run_manifest.json")
     LOGGER.info(
         "Bucket analysis complete: rows=%s events=%s",
         len(panel),
         int(widening.sum()),
     )
 
-    return {
-        "panel": panel_path,
-        "spread": signals_dir / "hourly_spread.csv",
-        "events": signals_dir / "hourly_widening.csv",
-        "bucket_summary": analysis_dir / "bucket_summary.csv",
-        "preference_scores": analysis_dir / "preference_scores.csv",
-        "transition_matrix": analysis_dir / "transition_matrix.csv",
-        "event_summary": analysis_dir / "hourly_widening_summary.csv",
-    }
+    return BucketAnalysisResult(
+        panel=panel,
+        front_next=front_next,
+        spread=spread,
+        widening=widening,
+        bucket_summary=bucket_summary,
+        session_summary=session_summary,
+        preference_scores=preference,
+        transition_matrix=transitions,
+        event_summary=event_summary,
+        business_days_index=business_days_index,
+        business_days_audit=business_days_audit,
+        multi_spreads=multi_spreads,
+        multi_events=multi_events,
+        strip_diagnostics=strip_diagnostics,
+        metadata=metadata,
+    )
 
 
 def run_daily_analysis(
     settings: cfg.Settings,
     *,
     metadata_path: Optional[Path] = None,
-    output_dir: Optional[Path] = None,
-) -> Dict[str, Path]:
+) -> DailyAnalysisResult:
     root_symbol = settings.products[0]
     data_root = Path(settings.data["minute_root"])
     files = find_contract_files(data_root, root_symbol=root_symbol)
@@ -361,7 +317,7 @@ def run_daily_analysis(
 
     dq = DataQualityFilter(settings.data_quality)
     filtered, metrics = dq.apply(daily)
-    dq.save_reports(metrics, (output_dir or settings.output_dir) / "data_quality", root_symbol)
+    quality_metrics = pd.DataFrame(metrics)
     if not filtered:
         raise RuntimeError("No contracts passed data quality filtering")
 
@@ -438,8 +394,13 @@ def run_daily_analysis(
             )
             business_days_index, business_days_audit = result
             LOGGER.info(f"Business days computed: {len(business_days_index)} days")
+        except (ValueError, KeyError) as e:
+            # Configuration or data structure errors - these are acceptable to catch
+            LOGGER.warning(f"Business day computation failed due to configuration issue: {e}")
         except Exception as e:
-            LOGGER.warning(f"Business day computation failed: {e}.")
+            # Unexpected errors - log with full context and re-raise
+            LOGGER.error(f"Unexpected error in business day computation: {e}", exc_info=True)
+            raise RuntimeError(f"Business day computation encountered unexpected error: {e}") from e
 
     align_policy = settings.business_days.get("align_events", "none")
     if align_policy and business_days_index is not None:
@@ -459,43 +420,24 @@ def run_daily_analysis(
 
     summary = summarize_events(widening, spread, business_days=business_days_index)
 
-    out_dir = (output_dir or settings.output_dir).resolve()
-    panels_dir = out_dir / "panels"
-    signals_dir = out_dir / "roll_signals"
-    analysis_dir = out_dir / "analysis"
-    for path in (panels_dir, signals_dir, analysis_dir):
-        path.mkdir(parents=True, exist_ok=True)
-
-    panel_path = panels_dir / "hg_panel_filtered.parquet"
-    _write_parquet(panel, panel_path)
-    _write_csv(panel, panels_dir / "hg_panel_full_filtered.csv")
-
-    _write_csv(summary, analysis_dir / "daily_widening_summary.csv", index=False)
-
-    _write_csv(spread, signals_dir / "hg_spread_filtered.csv")
-    _write_csv(widening, signals_dir / "hg_widening_filtered.csv")
-    _write_csv(liquidity, signals_dir / "hg_liquidity_roll_filtered.csv")
-    if business_days_audit is not None:
-        _write_csv(business_days_audit, analysis_dir / "business_days_audit_daily.csv", index=False)
-    _write_run_settings(settings, analysis_dir / "run_settings.json")
-    manifest = _build_run_manifest(
-        settings=settings,
-        calendar_paths=settings.business_days.get("calendar_paths", []),
-        output_dir=out_dir,
-    )
-    _write_manifest(manifest, analysis_dir / "run_manifest.json")
-
     LOGGER.info(
         "Daily analysis complete: rows=%s events=%s",
         len(panel),
         int(widening.sum()),
     )
 
-    return {
-        "panel": panel_path,
-        "spread": signals_dir / "hg_spread_filtered.csv",
-        "events": signals_dir / "hg_widening_filtered.csv",
-    }
+    return DailyAnalysisResult(
+        panel=panel,
+        front_next=front_next,
+        spread=spread,
+        widening=widening,
+        liquidity=liquidity,
+        summary=summary,
+        quality_metrics=quality_metrics,
+        business_days_index=business_days_index,
+        business_days_audit=business_days_audit,
+        metadata=metadata,
+    )
 
 
 def _load_metadata(path: Path, contracts: Iterable[str]) -> pd.DataFrame:
@@ -535,16 +477,6 @@ def _front_volume_series(panel: pd.DataFrame, front_next: pd.DataFrame) -> pd.Se
     return pd.Series(result, index=panel.index, name="front_volume")
 
 
-def _write_parquet(df: pd.DataFrame, path: Path) -> None:
-    path.unlink(missing_ok=True)
-    df.to_parquet(path)
-
-
-def _write_csv(obj: pd.DataFrame | pd.Series, path: Path, **kwargs) -> None:
-    path.unlink(missing_ok=True)
-    obj.to_csv(path, **kwargs)
-
-
 def _session_event_summary(bucket_summary: pd.DataFrame) -> pd.DataFrame:
     if bucket_summary.empty or "session" not in bucket_summary.columns:
         return pd.DataFrame(columns=["session", "event_count", "event_share_pct"])
@@ -560,119 +492,3 @@ def _session_event_summary(bucket_summary: pd.DataFrame) -> pd.DataFrame:
     else:
         grouped["event_share_pct"] = 0.0
     return grouped
-
-
-def _write_run_settings(settings: cfg.Settings, path: Path) -> None:
-    payload = {
-        "products": list(settings.products),
-        "data": settings.data,
-        "spread": settings.spread,
-        "selection": getattr(settings, "selection", {}),
-        "time": getattr(settings, "time", {}),
-        "business_days": {k: v for k, v in settings.business_days.items() if k != "calendar_paths"},
-        "output_dir": str(settings.output_dir),
-        "metadata_path": str(settings.metadata_path),
-    }
-    path.write_text(json.dumps(payload, indent=2, default=str))
-
-
-def _write_switch_log(f1_series: pd.Series, expiry_map: pd.Series, tz_exchange: str, out_path: Path) -> None:
-    idx = pd.DatetimeIndex(f1_series.index)
-    if idx.tz is None:
-        idx_local = idx.tz_localize(tz_exchange, nonexistent="shift_forward", ambiguous="infer")
-    else:
-        idx_local = idx.tz_convert(tz_exchange)
-    changes = f1_series.astype(object).ne(f1_series.shift(1)).fillna(True)
-    change_points = f1_series.index[changes]
-    rows = []
-    for cp in change_points[1:]:  # skip first segment with no previous F1
-        pos = f1_series.index.get_loc(cp)
-        prev = f1_series.iloc[pos - 1]
-        newf = f1_series.iloc[pos]
-        prev_exp = pd.to_datetime(expiry_map.get(str(prev), pd.NaT))
-        if pd.notna(prev_exp) and prev_exp.tz is None:
-            # For individual timestamps, use True (treat as DST) for ambiguous times
-            prev_exp = prev_exp.tz_localize(tz_exchange, ambiguous=True, nonexistent="shift_forward")
-        rows.append(
-            {
-                "prev_f1": prev,
-                "new_f1": newf,
-                "transition_time_local": idx_local[pos],
-                "prev_f1_expiry_local": prev_exp,
-            }
-        )
-    if rows:
-        pd.DataFrame(rows).to_csv(out_path, index=False)
-
-
-def _sha256_file(path: Path) -> Optional[str]:
-    try:
-        with path.open("rb") as fh:
-            digest = hashlib.sha256()
-            for chunk in iter(lambda: fh.read(8192), b""):
-                digest.update(chunk)
-        return digest.hexdigest()
-    except FileNotFoundError:
-        return None
-
-
-def _git_metadata() -> Dict[str, Optional[str]]:
-    info: Dict[str, Optional[str]] = {"commit": None, "dirty": None}
-    try:
-        commit = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout.strip()
-        status = subprocess.run(
-            ["git", "status", "--porcelain"],
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout.strip()
-        info["commit"] = commit
-        info["dirty"] = str(bool(status))
-    except Exception:
-        pass
-    return info
-
-
-def _build_run_manifest(
-    *,
-    settings: cfg.Settings,
-    calendar_paths: Iterable[Path],
-    output_dir: Path,
-) -> Dict[str, Any]:
-    calendar_entries = []
-    for path in calendar_paths:
-        if not path:
-            continue
-        calendar_entries.append(
-            {
-                "path": str(path),
-                "sha256": _sha256_file(path),
-            }
-        )
-
-    manifest = {
-        "timestamp_utc": datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
-        "git": _git_metadata(),
-        "python": sys.version.split()[0],
-        "packages": {
-            "pandas": pd.__version__,
-            "numpy": np.__version__,
-        },
-        "settings": {
-            "path": str(settings.settings_path),
-            "sha256": _sha256_file(settings.settings_path),
-        },
-        "calendars": calendar_entries,
-        "output_dir": str(output_dir),
-        "argv": sys.argv,
-    }
-    return manifest
-
-
-def _write_manifest(manifest: Dict[str, Any], path: Path) -> None:
-    path.write_text(json.dumps(manifest, indent=2))

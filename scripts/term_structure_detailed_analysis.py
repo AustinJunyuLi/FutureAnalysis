@@ -20,6 +20,10 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 
+# Add src to path
+src_path = Path(__file__).parent.parent / "src"
+sys.path.insert(0, str(src_path))
+
 from futures_roll_analysis.rolls import identify_front_to_f12, build_expiry_map
 
 
@@ -368,11 +372,11 @@ def main():
 This analysis examined how the copper futures term structure evolves as F1 approaches expiry.
 
 Key observations:
-1. The term structure typically shows CONTANGO during the rollover window (~74% of the time
+1. The term structure typically shows CONTANGO during the rollover window (\~74% of the time
    in the last 14 days), meaning F12 prices are higher than F1.
 
-2. The F2-F1 spread (S1) shows a small mean magnitude (~−0.18 cents/lb) with moderate variation
-   (std dev ~1.33 cents/lb), indicating the front spread is relatively flat near expiry.
+2. The F2-F1 spread (S1) shows a small mean magnitude (\~−0.18 cents/lb) with moderate variation
+   (std dev \~1.33 cents/lb), indicating the front spread is relatively flat near expiry.
 
 3. Slope analysis shows the curve becomes slightly more convex as F1 nears expiry,
    suggesting contracts 30–60 days out gain marginally relative to the very front.

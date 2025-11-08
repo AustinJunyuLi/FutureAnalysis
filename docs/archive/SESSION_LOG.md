@@ -1,5 +1,7 @@
 # Futures Roll Analysis – Session Log
 
+*Historical reference: this log documents the legacy troubleshooting sessions leading up to the November 2025 deterministic architecture.*
+
 This log records our correspondence and all substantive changes made during this session.
 
 ## Internet Access

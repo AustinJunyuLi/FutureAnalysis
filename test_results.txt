@@ -1,0 +1,103 @@
+============================= test session starts ==============================
+platform linux -- Python 3.11.14, pytest-8.4.2, pluggy-1.6.0 -- /home/austinli/miniconda3/envs/project/bin/python
+cachedir: .pytest_cache
+rootdir: /home/austinli/Dropbox/futures_individual_contracts_1min
+configfile: pyproject.toml
+plugins: anyio-4.11.0, cov-7.0.0
+collecting ... collected 62 items
+
+tests/test_analysis_session_summary.py::test_session_event_summary_grouping PASSED [  1%]
+tests/test_bucket.py::TestBucketAssignment::test_us_regular_hours_assignment PASSED [  3%]
+tests/test_bucket.py::TestBucketAssignment::test_off_peak_assignment PASSED [  4%]
+tests/test_bucket.py::TestBucketAssignment::test_all_hours_covered PASSED [  6%]
+tests/test_bucket.py::TestBucketAssignment::test_invalid_hour_raises_error PASSED [  8%]
+tests/test_bucket.py::TestBucketInfo::test_all_buckets_defined PASSED    [  9%]
+tests/test_bucket.py::TestBucketInfo::test_bucket_duration PASSED        [ 11%]
+tests/test_bucket.py::TestBucketInfo::test_invalid_bucket_raises_error PASSED [ 12%]
+tests/test_bucket.py::TestAggregation::test_aggregate_to_buckets_basic PASSED [ 14%]
+tests/test_bucket.py::TestAggregation::test_volume_conservation PASSED   [ 16%]
+tests/test_bucket.py::TestAggregation::test_price_ranges PASSED          [ 17%]
+tests/test_bucket.py::TestAggregation::test_bucket_count_per_day PASSED  [ 19%]
+tests/test_bucket.py::TestAggregation::test_validation_function PASSED   [ 20%]
+tests/test_bucket.py::TestAggregation::test_cross_midnight_anchor_without_duplicates PASSED [ 22%]
+tests/test_bucket.py::TestBucketStatistics::test_calculate_statistics PASSED [ 24%]
+tests/test_bucket.py::TestEdgeCases::test_empty_dataframe PASSED         [ 25%]
+tests/test_bucket.py::TestEdgeCases::test_single_minute PASSED           [ 27%]
+tests/test_bucket.py::TestEdgeCases::test_missing_columns PASSED         [ 29%]
+tests/test_events.py::TestEventDetection::test_detect_widening_basic PASSED [ 30%]
+tests/test_events.py::TestEventDetection::test_detect_widening_no_events PASSED [ 32%]
+tests/test_events.py::TestEventDetection::test_detect_widening_with_nan PASSED [ 33%]
+tests/test_events.py::TestEventDetection::test_cool_down_period PASSED   [ 35%]
+tests/test_events.py::TestEventDetection::test_different_thresholds PASSED [ 37%]
+tests/test_ingest_panel.py::test_normalize_contract_code_variants PASSED [ 38%]
+tests/test_ingest_panel.py::test_aggregation_conservation PASSED         [ 40%]
+tests/test_ingest_timestamp.py::test_load_minutes_honors_timestamp_format PASSED [ 41%]
+tests/test_labeler.py::test_strip_switches_at_expiry_instant PASSED      [ 43%]
+tests/test_labeler.py::test_f2_becomes_f1_exactly_at_expiry PASSED       [ 45%]
+tests/test_labeler.py::test_front_next_equal_f1_f2 PASSED                [ 46%]
+tests/test_panel.py::test_bucket_metadata_union PASSED                   [ 48%]
+tests/test_reporting.py::test_generate_report_creates_sections PASSED    [ 50%]
+tests/test_rolls.py::test_front_next_switches_exactly_at_expiry PASSED   [ 51%]
+tests/test_rolls.py::test_dst_fallback_both_occurrences PASSED           [ 53%]
+tests/test_rolls.py::test_dst_spring_forward_shifted PASSED              [ 54%]
+tests/test_rolls.py::test_utc_aware_index_handling PASSED                [ 56%]
+tests/test_rolls.py::test_full_strip_f1_to_f12 PASSED                    [ 58%]
+tests/test_rolls.py::test_no_valid_contracts_all_expired PASSED          [ 59%]
+tests/test_rolls.py::test_single_contract_only PASSED                    [ 61%]
+tests/test_rolls.py::test_non_monotonic_index_handling PASSED            [ 62%]
+tests/test_spreads.py::test_summarize_strip_dominance_classifies_expiry_and_roll PASSED [ 64%]
+tests/test_spreads.py::test_filter_expiry_dominance_events_masks_matching_days PASSED [ 66%]
+tests/test_trading_days.py::TestCalendarLoading::test_load_single_calendar PASSED [ 67%]
+tests/test_trading_days.py::TestCalendarLoading::test_regular_holiday_is_trading_day PASSED [ 69%]
+tests/test_trading_days.py::TestCalendarLoading::test_calendar_override_hierarchy PASSED [ 70%]
+tests/test_trading_days.py::TestCalendarLoading::test_calendar_union_hierarchy PASSED [ 72%]
+tests/test_trading_days.py::TestCalendarLoading::test_calendar_missing_file PASSED [ 74%]
+tests/test_trading_days.py::TestDynamicVolumeThreshold::test_fixed_threshold PASSED [ 75%]
+tests/test_trading_days.py::TestDynamicVolumeThreshold::test_dynamic_threshold_near_expiry PASSED [ 77%]
+tests/test_trading_days.py::TestBusinessDayComputation::test_calendar_only_policy PASSED [ 79%]
+tests/test_trading_days.py::TestBusinessDayComputation::test_data_coverage_guard PASSED [ 80%]
+tests/test_trading_days.py::TestBusinessDayComputation::test_partial_day_handling PASSED [ 82%]
+tests/test_trading_days.py::TestBusinessDayComputation::test_fallback_policies PASSED [ 83%]
+tests/test_trading_days.py::TestBusinessDayGaps::test_empty_events PASSED [ 85%]
+tests/test_trading_days.py::TestBusinessDayGaps::test_single_event PASSED [ 87%]
+tests/test_trading_days.py::TestBusinessDayGaps::test_multiple_events PASSED [ 88%]
+tests/test_trading_days.py::TestBusinessDayGaps::test_weekend_gap PASSED [ 90%]
+tests/test_trading_days.py::TestEdgeCases::test_empty_calendar PASSED    [ 91%]
+tests/test_trading_days.py::TestEdgeCases::test_invalid_hierarchy PASSED [ 93%]
+tests/test_trading_days.py::TestEdgeCases::test_compute_business_days_requires_expiry_map PASSED [ 95%]
+tests/test_trading_days.py::TestIntegration::test_christmas_holiday PASSED [ 96%]
+tests/test_trading_days.py::TestIntegration::test_leap_day PASSED        [ 98%]
+tests/test_trading_days.py::TestIntegration::test_year_boundary PASSED   [100%]
+
+================================ tests coverage ================================
+_______________ coverage: platform linux, python 3.11.14-final-0 _______________
+
+Name                                                 Stmts   Miss  Cover
+------------------------------------------------------------------------
+src/futures_roll_analysis/__init__.py                    4      0   100%
+src/futures_roll_analysis/analysis.py                  224    196    12%
+src/futures_roll_analysis/buckets.py                   121      5    96%
+src/futures_roll_analysis/calendar_tools.py             77     77     0%
+src/futures_roll_analysis/cli/__init__.py                1      1     0%
+src/futures_roll_analysis/cli/daily.py                  27     27     0%
+src/futures_roll_analysis/cli/hourly.py                 28     28     0%
+src/futures_roll_analysis/cli/organize.py               59     59     0%
+src/futures_roll_analysis/config.py                    109     84    23%
+src/futures_roll_analysis/events.py                    153    114    25%
+src/futures_roll_analysis/expiries.py                   18     18     0%
+src/futures_roll_analysis/ingest.py                    139     69    50%
+src/futures_roll_analysis/labeler.py                    29      2    93%
+src/futures_roll_analysis/multi_spread_analysis.py     125    113    10%
+src/futures_roll_analysis/panel.py                      44      3    93%
+src/futures_roll_analysis/quality.py                    91     68    25%
+src/futures_roll_analysis/reporting.py                 216     23    89%
+src/futures_roll_analysis/results.py                    37      0   100%
+src/futures_roll_analysis/rolls.py                     136     99    27%
+src/futures_roll_analysis/spreads.py                    59      8    86%
+src/futures_roll_analysis/trading_days.py              301     72    76%
+src/futures_roll_analysis/unified_cli.py               107    107     0%
+------------------------------------------------------------------------
+TOTAL                                                 2105   1173    44%
+Coverage HTML written to dir htmlcov
+Coverage JSON written to file coverage.json
+============================== 62 passed in 1.16s ==============================
