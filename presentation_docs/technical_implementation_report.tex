@@ -444,7 +444,8 @@ Calendar enforcement is \emph{optional}:
 \item If calendar file missing or invalid, system fails fast with clear error message
 \end{itemize}
 
-Test case: \texttt{test\_load\_settings\_accepts\_empty\_calendar\_paths} (\texttt{tests/test\_config.py:8}).
+Test case: \texttt{test\_load\_settings\_accepts\_empty\_calendar\_paths} \\
+(\texttt{tests/test\_config.py:8}).
 
 
 \subsection{Multi-Spread Analysis}
@@ -758,7 +759,8 @@ if config.commodity and not contract.startswith(config.commodity):
     continue
 \end{lstlisting}
 
-Setting \texttt{commodity: null} evaluates all contracts (multi-commodity mode). Test: \texttt{tests/test\_quality.py}.
+Setting \texttt{commodity: null} evaluates all contracts (multi-commodity mode). \\
+Test: \texttt{tests/test\_quality.py}.
 
 
 \subsection{Business Day Guards}
@@ -1051,7 +1053,7 @@ After expiry dominance filtering, S1 retains 215 ``clean'' events (92.1\% filter
 
 \begin{table}[H]
 \centering
-\begin{tabular}{llrrr}
+\begin{tabular}{p{0.27\textwidth}p{0.15\textwidth}rrr}
 \toprule
 \textbf{Bucket} & \textbf{Session} & \textbf{Total Periods} & \textbf{Events} & \textbf{Event Rate (\%)} \\
 \midrule
@@ -1194,7 +1196,7 @@ The framework produces outputs in three categories:
 
 \subsection{Panel Data}
 
-\begin{longtable}{lp{0.6\textwidth}}
+\begin{longtable}{p{0.35\textwidth}p{0.55\textwidth}}
 \toprule
 \textbf{File} & \textbf{Contents} \\
 \midrule
@@ -1206,7 +1208,7 @@ Columns: timestamp, F1\_open, F1\_high, ..., F12\_volume, S1, S2, ..., S11, expi
 
 \subsection{Roll Signals}
 
-\begin{longtable}{lp{0.6\textwidth}}
+\begin{longtable}{p{0.37\textwidth}p{0.53\textwidth}}
 \toprule
 \textbf{File} & \textbf{Contents} \\
 \midrule
@@ -1222,7 +1224,7 @@ Columns: timestamp, F1\_open, F1\_high, ..., F12\_volume, S1, S2, ..., S11, expi
 
 \subsection{Analytical Summaries}
 
-\begin{longtable}{lp{0.6\textwidth}}
+\begin{longtable}{p{0.38\textwidth}p{0.52\textwidth}}
 \toprule
 \textbf{File} & \textbf{Contents} \\
 \midrule
@@ -1334,7 +1336,7 @@ Requires: Feature engineering from panel data, labeled training set from histori
 
 \subsubsection{Configuration (config.py)}
 
-\begin{longtable}{llp{0.55\textwidth}}
+\begin{longtable}{p{0.32\textwidth}p{0.12\textwidth}p{0.46\textwidth}}
 \toprule
 \textbf{Function} & \textbf{Line} & \textbf{Description} \\
 \midrule
@@ -1345,7 +1347,7 @@ Requires: Feature engineering from panel data, labeled training set from histori
 
 \subsubsection{Ingestion (ingest.py)}
 
-\begin{longtable}{llp{0.55\textwidth}}
+\begin{longtable}{p{0.32\textwidth}p{0.12\textwidth}p{0.46\textwidth}}
 \toprule
 \textbf{Function} & \textbf{Line} & \textbf{Description} \\
 \midrule
@@ -1357,7 +1359,7 @@ Requires: Feature engineering from panel data, labeled training set from histori
 
 \subsubsection{Rolls (rolls.py)}
 
-\begin{longtable}{llp{0.55\textwidth}}
+\begin{longtable}{p{0.35\textwidth}p{0.12\textwidth}p{0.43\textwidth}}
 \toprule
 \textbf{Function} & \textbf{Line} & \textbf{Description} \\
 \midrule
@@ -1369,7 +1371,7 @@ Requires: Feature engineering from panel data, labeled training set from histori
 
 \subsubsection{Trading Days (trading\_days.py)}
 
-\begin{longtable}{llp{0.55\textwidth}}
+\begin{longtable}{p{0.40\textwidth}p{0.12\textwidth}p{0.38\textwidth}}
 \toprule
 \textbf{Function} & \textbf{Line} & \textbf{Description} \\
 \midrule
@@ -1382,7 +1384,7 @@ Requires: Feature engineering from panel data, labeled training set from histori
 
 \subsubsection{Spreads (spreads.py)}
 
-\begin{longtable}{llp{0.55\textwidth}}
+\begin{longtable}{p{0.39\textwidth}p{0.12\textwidth}p{0.39\textwidth}}
 \toprule
 \textbf{Function} & \textbf{Line} & \textbf{Description} \\
 \midrule
@@ -1394,7 +1396,7 @@ Requires: Feature engineering from panel data, labeled training set from histori
 
 \subsubsection{Events (events.py)}
 
-\begin{longtable}{llp{0.55\textwidth}}
+\begin{longtable}{p{0.32\textwidth}p{0.12\textwidth}p{0.46\textwidth}}
 \toprule
 \textbf{Function} & \textbf{Line} & \textbf{Description} \\
 \midrule
@@ -1406,7 +1408,7 @@ Requires: Feature engineering from panel data, labeled training set from histori
 
 \subsubsection{Multi-Spread Analysis (multi\_spread\_analysis.py)}
 
-\begin{longtable}{llp{0.55\textwidth}}
+\begin{longtable}{p{0.44\textwidth}p{0.12\textwidth}p{0.34\textwidth}}
 \toprule
 \textbf{Function} & \textbf{Line} & \textbf{Description} \\
 \midrule
