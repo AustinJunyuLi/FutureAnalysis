@@ -19,10 +19,16 @@ contracts become F1 before the prior expiry due to liquidity crossover.
 
 from __future__ import annotations
 
+# Fix matplotlib backend and fonts
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+plt.rcParams['font.family'] = 'sans-serif'
+plt.rcParams['font.sans-serif'] = ['Liberation Sans', 'sans-serif']
+
 import sys
 from pathlib import Path
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 

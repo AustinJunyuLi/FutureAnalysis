@@ -14,12 +14,18 @@ Key Questions:
 
 from __future__ import annotations
 
+# Fix matplotlib backend and fonts
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+plt.rcParams['font.family'] = 'sans-serif'
+plt.rcParams['font.sans-serif'] = ['Liberation Sans', 'sans-serif']
+
 import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from matplotlib import cm
 
