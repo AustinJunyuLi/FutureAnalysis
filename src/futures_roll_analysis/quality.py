@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
-from typing import Dict, Iterable, List, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -19,7 +19,7 @@ class QualityConfig:
     max_gap_days: int = 30
     min_coverage_percent: float = 30.0
     trim_early_sparse: bool = True
-    commodity: str = ""
+    commodity: Optional[str] = None
 
 
 class DataQualityFilter:

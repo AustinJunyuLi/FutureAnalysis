@@ -38,5 +38,5 @@
 ## Security & Configuration
 - Keep `organized_data/` and generated `outputs/` out of version control (see `.gitignore`).
 - Never commit secrets; use env vars (e.g., `FUTURES_PROJECT`) and relative paths.
-- Trading calendars are required: set `business_days.calendar_paths` in `config/settings.yaml`.
-
+- Trading calendars are optional: provide `business_days.calendar_paths` to enable business-day alignment, or leave the list empty to operate on calendar days.
+- Spread cool-down knobs (`cool_down_buckets` / `cool_down_hours`) enforce a strictly greater-than gap (e.g., 3 ⇒ four intervening buckets/hours).

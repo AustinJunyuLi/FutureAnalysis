@@ -59,7 +59,7 @@ futures-roll organize --source raw_data --destination organized_data --dry-run
 ### Methodology Highlights
 
 - **Deterministic expiry-based strip labeling** ensures F2 becomes F1 at the documented expiry instant (17:00 CT), independent of data availability.
-- **Strict CME calendar enforcement** rejects weekday fallbacks and requires valid `business_days.calendar_paths`, guaranteeing proper treatment of partial/holiday sessions.
+- **Strict CME calendar enforcement** is available whenever you supply `business_days.calendar_paths`; if you omit calendars the run still completes, but bucket/day audits stay in calendar-time space.
 - **Hour-precision timing** replaces `.dt.days` arithmetic throughout `trading_days.py`, so business-day audits and near-expiry relaxations operate at the correct intraday resolution.
 - Reports: two LaTeX sources live in `presentation_docs/` — `analytical_results_report.tex` (narrative results) and `technical_implementation_report.tex` (auto-generated option via CLI).
 
@@ -209,7 +209,7 @@ futures_individual_contracts_1min/
 - **Panels**: Wide-format DataFrames with all contracts (Parquet/CSV)
 - **Roll Signals**: Time series of spreads, widening events, liquidity rolls
 - **Analysis Summaries**: Bucket statistics, preference scores, transition matrices,
-  and hourly/daily widening summaries (calendar and business day gaps when enabled)
+  and hourly/daily widening summaries (calendar and business day gaps when calendars are supplied)
 - **Quality Reports**: Filtering metrics and contract status
 
 ## Testing
@@ -246,7 +246,9 @@ Key detection knobs currently supported:
 - `spread.abs_min` – filters out statistically significant but economically trivial spread changes (default 2¢).
 - `roll_rules.confirmation_min_signals` – require at least *N* of {spread widening, liquidity roll, open-interest migration} before flagging an event (default 1 keeps legacy behaviour).
 - `roll_rules.oi_ratio` / `roll_rules.oi_confirm_days` – configure how aggressively the open-interest signal is triggered.
-- `business_days.calendar_paths` – provide one or more calendars to enable business-day guards; leave the list empty if you want to skip calendar alignment entirely.
+- `business_days.calendar_paths` – provide one or more calendars to enable business-day guards; leave the list empty if you want to skip calendar alignment entirely (in that case summaries rely on calendar days only).
+- `spread.cool_down_*` – these parameters enforce a *strictly greater* gap: `cool_down=3` means at least four buckets (or four hours if you use `cool_down_hours`) between events.
+- `data_quality.commodity` – leave unset (`null`) to evaluate every product in multi-symbol runs; set it to a symbol (e.g., `HG`) only when you intentionally want to filter to that commodity.
 
 ## Code Quality
 
