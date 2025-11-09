@@ -198,6 +198,32 @@ class TestAggregation:
         assert validation['high_price_consistency'] == True
         assert validation['low_price_consistency'] == True
 
+    def _create_dst_dataset(self, start: str, minutes: int) -> pd.DataFrame:
+        idx = pd.date_range(start=start, periods=minutes, freq="min", tz="US/Central")
+        data = np.linspace(100, 101, len(idx))
+        return pd.DataFrame(
+            {
+                "open": data,
+                "high": data + 0.1,
+                "low": data - 0.1,
+                "close": data,
+                "volume": np.full(len(idx), 50),
+            },
+            index=idx,
+        )
+
+    def test_aggregate_handles_dst_spring_forward(self):
+        minute_df = self._create_dst_dataset("2024-03-09 18:00", minutes=60 * 30)
+        bucket_df = aggregate_to_buckets(minute_df)
+        assert bucket_df.index.is_monotonic_increasing
+        assert not bucket_df.index.duplicated().any()
+
+    def test_aggregate_handles_dst_fall_back(self):
+        minute_df = self._create_dst_dataset("2024-11-02 18:00", minutes=60 * 30)
+        bucket_df = aggregate_to_buckets(minute_df)
+        assert bucket_df.index.is_monotonic_increasing
+        assert not bucket_df.index.duplicated().any()
+
     def test_cross_midnight_anchor_without_duplicates(self):
         """Cross-midnight buckets should anchor to the prior day without duplicate timestamps."""
         idx = pd.date_range("2024-01-03 20:30", periods=360, freq="1min")

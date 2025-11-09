@@ -12,7 +12,12 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 # Import from the project
-from futures_roll_analysis.events import detect_spread_events
+from futures_roll_analysis.events import (
+    detect_spread_events,
+    preprocess_spread,
+    confirm_roll_events,
+    preference_scores,
+)
 
 
 class TestEventDetection:
@@ -98,6 +103,41 @@ class TestEventDetection:
         high_event_dates = events_high[events_high].index
         for date in high_event_dates:
             assert events_low[date], "High threshold events should be subset of low threshold"
+
+    def test_preprocess_spread_clips_and_smooths(self):
+        dates = pd.date_range('2024-01-01', periods=10, freq='D')
+        spread = pd.Series([0.0, 0.1, 0.2, 5.0, 0.3, 0.4, -4.0, 0.5, 0.6, 0.7], index=dates)
+
+        clipped = preprocess_spread(spread, clip_quantile=0.1, ema_span=None)
+        upper_bound = spread.quantile(0.9)
+        lower_bound = spread.quantile(0.1)
+        assert clipped.max() <= upper_bound + 1e-9
+        assert clipped.min() >= lower_bound - 1e-9
+
+        smoothed = preprocess_spread(spread, clip_quantile=None, ema_span=3)
+        assert not smoothed.equals(spread)
+
+    def test_confirm_roll_events_requires_multiple_signals(self):
+        dates = pd.date_range('2024-01-01', periods=4, freq='D')
+        spread_signal = pd.Series([True, True, True, False], index=dates)
+        liquidity = pd.Series([False, True, True, False], index=dates)
+        oi = pd.Series([True, False, True, False], index=dates)
+
+        confirmed = confirm_roll_events(
+            spread_signal,
+            {"liquidity": liquidity, "open_interest": oi},
+            min_signals=2,
+        )
+
+        assert confirmed.tolist() == [True, True, True, False]
+
+    def test_preference_scores_handles_zero_volume(self):
+        buckets = pd.Series([1, 2, 3])
+        events = pd.Series([True, False, True])
+        volumes = pd.Series([0.0, 0.0, 0.0])
+
+        result = preference_scores(events, volumes, buckets)
+        assert (result == 0).all()
 
 
 if __name__ == "__main__":

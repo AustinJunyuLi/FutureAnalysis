@@ -19,6 +19,7 @@ from futures_roll_analysis.rolls import (
     identify_front_next,
     identify_front_to_f12,
     build_expiry_map,
+    compute_open_interest_signal,
 )
 
 
@@ -315,3 +316,41 @@ def test_non_monotonic_index_handling():
     assert len(result) == len(index)
     # No NaT values should be present
     assert not result["front_contract"].isna().any()
+
+
+def test_compute_open_interest_signal_basic():
+    index = pd.date_range("2025-03-01", periods=3, freq="D")
+    panel = pd.DataFrame(
+        {
+            ("HGH2025", "open_interest"): [1000, 800, 600],
+            ("HGK2025", "open_interest"): [500, 700, 900],
+        },
+        index=index,
+    )
+    panel.columns = pd.MultiIndex.from_tuples(panel.columns)
+
+    front_next = pd.DataFrame(
+        {
+            "front_contract": ["HGH2025"] * 3,
+            "next_contract": ["HGK2025"] * 3,
+        },
+        index=index,
+    )
+
+    signals = compute_open_interest_signal(panel, front_next, ratio=0.7, confirm=1)
+    assert signals.tolist() == [False, True, True]
+
+    confirmed = compute_open_interest_signal(panel, front_next, ratio=0.7, confirm=2)
+    assert confirmed.tolist() == [False, False, True]
+
+
+def test_compute_open_interest_signal_missing_field_returns_none():
+    index = pd.date_range("2025-03-01", periods=2, freq="D")
+    panel = pd.DataFrame({("HGH2025", "close"): [4.0, 4.1]}, index=index)
+    panel.columns = pd.MultiIndex.from_tuples(panel.columns)
+    front_next = pd.DataFrame(
+        {"front_contract": ["HGH2025", "HGH2025"], "next_contract": ["HGK2025", "HGK2025"]},
+        index=index,
+    )
+
+    assert compute_open_interest_signal(panel, front_next) is None

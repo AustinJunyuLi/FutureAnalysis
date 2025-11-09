@@ -1,11 +1,31 @@
 from __future__ import annotations
 
-from typing import Iterable, List, Optional, Sequence
+from typing import Dict, Iterable, List, Optional, Sequence
 
 import numpy as np
 import pandas as pd
 
 from .trading_days import business_day_gaps as _business_day_gaps
+
+
+def preprocess_spread(
+    spread: pd.Series,
+    *,
+    clip_quantile: Optional[float] = None,
+    ema_span: Optional[int] = None,
+) -> pd.Series:
+    """Apply optional clipping/smoothing to reduce microstructure noise."""
+
+    series = spread.copy()
+    if clip_quantile is not None and 0 < clip_quantile < 0.5:
+        lower = series.quantile(clip_quantile)
+        upper = series.quantile(1 - clip_quantile)
+        series = series.clip(lower=lower, upper=upper)
+
+    if ema_span is not None and ema_span > 1:
+        series = series.ewm(span=ema_span, adjust=False).mean()
+
+    return series
 
 
 def detect_spread_events(
@@ -121,6 +141,29 @@ def detect_multi_spread_events(
     return result
 
 
+def confirm_roll_events(
+    primary: pd.Series,
+    additional_signals: Optional[Dict[str, Optional[pd.Series]]] = None,
+    *,
+    min_signals: int = 1,
+) -> pd.Series:
+    """Require a minimum number of boolean signals (including primary) to confirm events."""
+
+    signals = {"spread": primary.astype(bool)}
+    if additional_signals:
+        for name, series in additional_signals.items():
+            if series is None:
+                continue
+            aligned = series.reindex(primary.index).fillna(False).astype(bool)
+            signals[name] = aligned
+
+    signals_df = pd.DataFrame(signals)
+    effective_min = min(max(min_signals, 1), signals_df.shape[1])
+    counts = signals_df.astype(int).sum(axis=1)
+    mask = (counts >= effective_min) & signals_df["spread"]
+    return signals_df["spread"] & mask
+
+
 def align_events_to_business_days(
     events: pd.Series,
     business_days: Optional[pd.DatetimeIndex],
@@ -193,9 +236,21 @@ def summarize_events(
     biz_iter = iter(biz_gap_series) if biz_gap_series is not None else None
 
     for date in event_dates:
-        loc = spread.index.get_loc(date)
-        before = spread.iloc[loc - 1] if loc > 0 else np.nan
-        after = spread.iloc[loc]
+        if spread.empty:
+            before = np.nan
+            after = np.nan
+        else:
+            try:
+                loc = spread.index.get_loc(date)
+                before = spread.iloc[loc - 1] if loc > 0 else np.nan
+                after = spread.iloc[loc]
+            except KeyError:
+                pos = spread.index.searchsorted(date)
+                before = spread.iloc[pos - 1] if pos - 1 >= 0 else np.nan
+                if pos >= len(spread):
+                    after = spread.iloc[-1]
+                else:
+                    after = spread.iloc[pos]
         change = after - before
 
         row = {
@@ -274,12 +329,17 @@ def preference_scores(
 
     event_rate = events_df.groupby("bucket")["event"].mean()
     volume_by_bucket = volume_df.groupby("bucket")["volume"].sum()
-    volume_share = volume_by_bucket / volume_by_bucket.sum()
+    total_volume = volume_by_bucket.sum()
+    if total_volume <= 0 or pd.isna(total_volume):
+        return pd.Series(0.0, index=event_rate.index, name="preference")
+
+    volume_share = volume_by_bucket / total_volume
     volume_share = volume_share.replace(0, 0.0001)
 
     scores = event_rate / volume_share
     if scores.mean() > 0:
         scores = scores / scores.mean()
+    scores.name = "preference"
     return scores
 
 

@@ -41,6 +41,9 @@ roll_rules:
   liquidity_threshold: 0.8
   confirm_days: 1
   use_open_interest: false
+  oi_ratio: 0.75
+  oi_confirm_days: 1
+  confirmation_min_signals: 1
 
 time:
   tz_exchange: America/Chicago
@@ -54,14 +57,17 @@ strip_analysis:
 
 spread:
   method: "zscore"           # Detection method: "zscore", "abs", or "combined"
-  window_buckets: 20         # Rolling window in buckets (~2 days at 10 buckets/day)
+  window_buckets: 50         # Rolling window in buckets (~5 days at 10 buckets/day)
   z_threshold: 1.5           # Z-score threshold (1.5 gives ~5% detection rate)
-  abs_min: null              # Minimum absolute change (set to 0.020 to filter noise if needed)
+  abs_min: 0.02              # Minimum absolute change to filter statistically insignificant moves
   cool_down_hours: 3.0       # Time-based cool-down between events (hours)
+  clip_quantile: 0.01        # Clip 1% tails before detection to reduce outliers
+  ema_span: 3                # Light exponential smoothing of spread signal
 
 business_days:
   calendar_paths:            # List of calendar files (hierarchical override, REQUIRED)
     - "../metadata/calendars/cme_globex_holidays.csv"
+    # Remove or leave empty to disable business-day alignment entirely.
   calendar_hierarchy: "override"  # "override" | "union" | "intersection"
   min_total_buckets: 6       # Minimum total buckets per day for data guard
   min_us_buckets: 2          # Minimum US session buckets per day

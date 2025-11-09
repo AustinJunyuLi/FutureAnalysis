@@ -7,6 +7,45 @@ import pandas as pd
 
 from .labeler import compute_strip_labels
 
+
+def _extract_front_next_field(
+    panel: pd.DataFrame,
+    front_next: pd.DataFrame,
+    *,
+    field: str,
+    meta_namespace: str = "meta",
+) -> tuple[Optional[pd.Series], Optional[pd.Series]]:
+    """Return front/next series for the requested field if available."""
+
+    contracts = [c for c in panel.columns.get_level_values(0).unique() if c != meta_namespace]
+    field_df = _extract_field(panel, contracts, field)
+    if field_df.empty:
+        return None, None
+
+    values = field_df.to_numpy(dtype=float)
+    contract_index = {contract: idx for idx, contract in enumerate(field_df.columns)}
+
+    front_idx = np.array([contract_index.get(c, -1) for c in front_next["front_contract"]], dtype=int)
+    next_idx = np.array([contract_index.get(c, -1) for c in front_next["next_contract"]], dtype=int)
+
+    front_values = np.full(len(panel), np.nan)
+    next_values = np.full(len(panel), np.nan)
+
+    valid_front = front_idx >= 0
+    if valid_front.any():
+        row_idx = np.nonzero(valid_front)[0]
+        front_values[valid_front] = values[row_idx, front_idx[valid_front]]
+
+    valid_next = next_idx >= 0
+    if valid_next.any():
+        row_idx = np.nonzero(valid_next)[0]
+        next_values[valid_next] = values[row_idx, next_idx[valid_next]]
+
+    return (
+        pd.Series(front_values, index=panel.index, name=f"front_{field}"),
+        pd.Series(next_values, index=panel.index, name=f"next_{field}"),
+    )
+
 def build_expiry_map(expiry_df: pd.DataFrame, *, default_hour: int = 17, default_minute: int = 0) -> pd.Series:
     """
     Return a Series mapping contract codes to naive expiry timestamps (local day + time).
@@ -259,32 +298,18 @@ def compute_liquidity_signal(
     meta_namespace: str = "meta",
 ) -> pd.Series:
     """Detect liquidity roll signals where next volume exceeds alpha * front volume."""
-    contracts = [
-        contract
-        for contract in panel.columns.get_level_values(0).unique()
-        if contract != meta_namespace
-    ]
-    if not contracts:
-        raise ValueError("Panel does not contain contract columns")
+    front_series, next_series = _extract_front_next_field(
+        panel, front_next, field=volume_field, meta_namespace=meta_namespace
+    )
+    if front_series is None or next_series is None:
+        return pd.Series(False, index=panel.index, name="liquidity_roll")
 
-    volume_df = _extract_field(panel, contracts, volume_field)
-    volume_values = volume_df.to_numpy(dtype=float)
-
-    contract_index = {contract: idx for idx, contract in enumerate(contracts)}
-    front_idx = np.array([contract_index.get(c, -1) for c in front_next["front_contract"]], dtype=int)
-    next_idx = np.array([contract_index.get(c, -1) for c in front_next["next_contract"]], dtype=int)
-
-    signals = np.zeros(len(panel), dtype=bool)
-    valid_mask = (front_idx >= 0) & (next_idx >= 0)
-    if valid_mask.any():
-        front_vol = volume_values[valid_mask, front_idx[valid_mask]]
-        next_vol = volume_values[valid_mask, next_idx[valid_mask]]
-        signals[valid_mask] = (next_vol >= alpha * front_vol) & (front_vol > 0)
-
-    series = pd.Series(signals, index=panel.index, name="liquidity_roll")
+    signals = (next_series >= alpha * front_series) & (front_series > 0)
+    signals = signals.fillna(False)
+    series = signals.rename("liquidity_roll")
     if confirm > 1:
         rolling = series.rolling(confirm).apply(lambda x: np.all(x == 1), raw=True)
-        series = rolling.astype(bool)
+        series = rolling.eq(1.0).fillna(False)
     return series
 
 
@@ -314,39 +339,39 @@ def extract_front_next_volumes(
     tuple[pd.Series, pd.Series]
         (front_volumes, next_volumes) as pandas Series indexed by panel.index
     """
-    contracts = [
-        contract
-        for contract in panel.columns.get_level_values(0).unique()
-        if contract != meta_namespace
-    ]
-    volume_df = _extract_field(panel, contracts, volume_field)
-    volume_values = volume_df.to_numpy(dtype=float)
-
-    contract_index = {contract: idx for idx, contract in enumerate(volume_df.columns)}
-
-    front_idx = np.array(
-        [contract_index.get(c, -1) for c in front_next["front_contract"]], dtype=int
+    front_series, next_series = _extract_front_next_field(
+        panel, front_next, field=volume_field, meta_namespace=meta_namespace
     )
-    next_idx = np.array([contract_index.get(c, -1) for c in front_next["next_contract"]], dtype=int)
+    if front_series is None or next_series is None:
+        empty = pd.Series(np.nan, index=panel.index)
+        return empty.rename("front_volume"), empty.rename("next_volume")
+    return front_series.rename("front_volume"), next_series.rename("next_volume")
 
-    front_volumes = np.full(len(panel), np.nan)
-    next_volumes = np.full(len(panel), np.nan)
 
-    valid_front = front_idx >= 0
-    valid_next = next_idx >= 0
+def compute_open_interest_signal(
+    panel: pd.DataFrame,
+    front_next: pd.DataFrame,
+    *,
+    oi_field: str = "open_interest",
+    ratio: float = 0.75,
+    confirm: int = 1,
+    meta_namespace: str = "meta",
+) -> Optional[pd.Series]:
+    """Detect open-interest migrations from front to next contracts."""
 
-    if valid_front.any():
-        row_idx = np.nonzero(valid_front)[0]
-        front_volumes[valid_front] = volume_values[row_idx, front_idx[valid_front]]
-
-    if valid_next.any():
-        row_idx = np.nonzero(valid_next)[0]
-        next_volumes[valid_next] = volume_values[row_idx, next_idx[valid_next]]
-
-    return (
-        pd.Series(front_volumes, index=panel.index, name="front_volume"),
-        pd.Series(next_volumes, index=panel.index, name="next_volume"),
+    front_series, next_series = _extract_front_next_field(
+        panel, front_next, field=oi_field, meta_namespace=meta_namespace
     )
+    if front_series is None or next_series is None:
+        return None
+
+    signals = (next_series >= ratio * front_series) & (front_series > 0)
+    signals = signals.fillna(False)
+    series = signals.rename("open_interest_roll")
+    if confirm > 1:
+        rolling = series.rolling(confirm).apply(lambda x: np.all(x == 1), raw=True)
+        series = rolling.eq(1.0).fillna(False)
+    return series
 
 
 def _extract_field(panel: pd.DataFrame, contracts: Sequence[str], field: str) -> pd.DataFrame:

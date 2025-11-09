@@ -11,9 +11,11 @@ from . import config as cfg
 from . import trading_days
 from . import spreads as strip_tools
 from .events import (
+    preprocess_spread,
     detect_spread_events,
     detect_multi_spread_events,
     align_events_to_business_days,
+    confirm_roll_events,
     preference_scores,
     summarize_bucket_events,
     summarize_events,
@@ -25,6 +27,7 @@ from .quality import DataQualityFilter
 from .rolls import (
     build_expiry_map,
     compute_liquidity_signal,
+    compute_open_interest_signal,
     compute_spread,
     compute_multi_spreads,
     identify_front_next,
@@ -62,6 +65,9 @@ def run_bucket_analysis(
     if not buckets:
         raise RuntimeError("Bucket aggregation returned no data")
 
+    price_field = settings.data.get("price_field", "close")
+    _ensure_required_fields(buckets, [price_field])
+
     metadata = _load_metadata(metadata_path or settings.metadata_path, buckets.keys())
     panel = assemble_panel(buckets, metadata, include_bucket_meta=True)
 
@@ -78,9 +84,14 @@ def run_bucket_analysis(
     panel[("meta", "front_contract")] = front_next["front_contract"].values
     panel[("meta", "next_contract")] = front_next["next_contract"].values
 
-    spread = compute_spread(panel, front_next, price_field=settings.data.get("price_field", "close"))
-
+    spread = compute_spread(panel, front_next, price_field=price_field)
     spread_cfg = settings.spread
+    spread_signal = preprocess_spread(
+        spread,
+        clip_quantile=spread_cfg.get("clip_quantile"),
+        ema_span=spread_cfg.get("ema_span"),
+    )
+
     cool_down = None
     if spread_cfg.get("cool_down_hours") is not None:
         cool_down = pd.Timedelta(hours=spread_cfg["cool_down_hours"])
@@ -88,7 +99,7 @@ def run_bucket_analysis(
         cool_down = int(spread_cfg["cool_down_buckets"])
 
     widening = detect_spread_events(
-        spread,
+        spread_signal,
         method=spread_cfg.get("method", "zscore"),
         window=spread_cfg.get("window_buckets", spread_cfg.get("window", 30)),
         z_threshold=spread_cfg.get("z_threshold", 1.5),
@@ -96,6 +107,24 @@ def run_bucket_analysis(
         cool_down=cool_down,
     )
     widening = widening.astype(bool)
+
+    roll_rules = settings.roll_rules or {}
+    liquidity_signal = compute_liquidity_signal(
+        panel,
+        front_next,
+        volume_field=settings.data.get("volume_field", "volume"),
+        alpha=roll_rules.get("liquidity_threshold", 0.8),
+        confirm=roll_rules.get("confirm_days", 1),
+    )
+    oi_signal = compute_open_interest_signal(
+        panel,
+        front_next,
+        ratio=roll_rules.get("oi_ratio", 0.75),
+        confirm=roll_rules.get("oi_confirm_days", 1),
+    )
+    confirmation_min = int(roll_rules.get("confirmation_min_signals", 1))
+    additional_signals = {"liquidity": liquidity_signal, "open_interest": oi_signal}
+    widening = confirm_roll_events(widening, additional_signals, min_signals=confirmation_min)
 
     strip_cfg = settings.strip_analysis or {}
 
@@ -255,17 +284,26 @@ def run_bucket_analysis(
             if removed:
                 LOGGER.info("Filtered %s widening events classified as expiry dominance (from %s)", removed, widened_before)
 
+    support_index = widening.index
+    tol = pd.Timedelta(hours=1)
+    spread_for_events = _reindex_like(spread, support_index, tolerance=tol)
+    volume_series = _reindex_like(volume_series, support_index, tolerance=tol)
+    bucket_ids = _reindex_like(bucket_ids, support_index, tolerance=tol)
+    labels = _reindex_like(labels, support_index, tolerance=tol)
+    sessions = _reindex_like(sessions, support_index, tolerance=tol)
+    bucket_ids = bucket_ids.astype("Int64")
+
     bucket_summary = summarize_bucket_events(
         widening,
-        spread,
-        bucket_ids.astype("Int64"),
+        spread_for_events,
+        bucket_ids,
         bucket_labels=labels,
         sessions=sessions,
     )
     session_summary = _session_event_summary(bucket_summary)
     preference = preference_scores(widening, volume_series, bucket_ids)
     transitions = transition_matrix(widening, bucket_ids)
-    event_summary = summarize_events(widening, spread, business_days=business_days_index)
+    event_summary = summarize_events(widening, spread_for_events, business_days=business_days_index)
 
     LOGGER.info(
         "Bucket analysis complete: rows=%s events=%s",
@@ -333,12 +371,19 @@ def run_daily_analysis(
     panel[("meta", "front_contract")] = front_next["front_contract"].values
     panel[("meta", "next_contract")] = front_next["next_contract"].values
 
-    spread = compute_spread(panel, front_next, price_field=settings.data.get("price_field", "close"))
+    price_field = settings.data.get("price_field", "close")
+    _ensure_required_fields(filtered, [price_field])
+    spread = compute_spread(panel, front_next, price_field=price_field)
 
     spread_cfg = settings.spread
+    spread_signal = preprocess_spread(
+        spread,
+        clip_quantile=spread_cfg.get("clip_quantile"),
+        ema_span=spread_cfg.get("ema_span"),
+    )
     cool_down = spread_cfg.get("cool_down")
     widening = detect_spread_events(
-        spread,
+        spread_signal,
         method=spread_cfg.get("method", "zscore"),
         window=spread_cfg.get("window", spread_cfg.get("window_buckets", 30)),
         z_threshold=spread_cfg.get("z_threshold", 1.5),
@@ -354,6 +399,16 @@ def run_daily_analysis(
         alpha=settings.roll_rules.get("liquidity_threshold", 0.8),
         confirm=settings.roll_rules.get("confirm_days", 1),
     )
+    oi_signal = compute_open_interest_signal(
+        panel,
+        front_next,
+        ratio=settings.roll_rules.get("oi_ratio", 0.75),
+        confirm=settings.roll_rules.get("oi_confirm_days", 1),
+    )
+    confirmation_min = int(settings.roll_rules.get("confirmation_min_signals", 1))
+    additional_signals = {"liquidity": liquidity, "open_interest": oi_signal}
+    widening = confirm_roll_events(widening, additional_signals, min_signals=confirmation_min)
+    spread_for_events = _reindex_like(spread, widening.index, tolerance=pd.Timedelta(days=1))
 
     # Strict calendar requirement: fail fast if calendar loading fails
     calendar_paths = settings.business_days.get("calendar_paths", [])
@@ -418,7 +473,7 @@ def run_daily_analysis(
             LOGGER.info("Dropping %s daily widening events outside approved business days", invalid)
         widening = widening & approved_mask.fillna(False)
 
-    summary = summarize_events(widening, spread, business_days=business_days_index)
+    summary = summarize_events(widening, spread_for_events, business_days=business_days_index)
 
     LOGGER.info(
         "Daily analysis complete: rows=%s events=%s",
@@ -453,6 +508,20 @@ def _load_metadata(path: Path, contracts: Iterable[str]) -> pd.DataFrame:
     if missing:
         raise ValueError(f"Missing explicit expiry for contracts: {', '.join(missing[:10])}")
     return subset
+
+
+def _ensure_required_fields(frames_by_contract: dict[str, pd.DataFrame], fields: Iterable[str]) -> None:
+    missing = {}
+    for contract, frame in frames_by_contract.items():
+        absent = [field for field in fields if field not in frame.columns]
+        if absent:
+            missing[contract] = absent
+    if missing:
+        preview = ", ".join(f"{contract}: {absent}" for contract, absent in list(missing.items())[:5])
+        raise ValueError(
+            "Missing required columns in aggregated data. "
+            f"Requested fields {list(fields)} but absent for contracts: {preview}"
+        )
 
 
 def _front_volume_series(panel: pd.DataFrame, front_next: pd.DataFrame) -> pd.Series:
@@ -492,3 +561,13 @@ def _session_event_summary(bucket_summary: pd.DataFrame) -> pd.DataFrame:
     else:
         grouped["event_share_pct"] = 0.0
     return grouped
+
+
+def _reindex_like(series: pd.Series, target: pd.Index, *, tolerance: Optional[pd.Timedelta] = None) -> pd.Series:
+    aligned = series.reindex(target)
+    if tolerance is not None and aligned.isna().any():
+        missing_index = aligned[aligned.isna()].index
+        if len(missing_index) > 0:
+            fallback = series.reindex(missing_index, method="nearest", tolerance=tolerance)
+            aligned.loc[missing_index] = fallback
+    return aligned

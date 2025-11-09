@@ -240,6 +240,14 @@ spread:         # Event detection settings
 output_dir:     # Output directory
 ```
 
+Key detection knobs currently supported:
+
+- `spread.clip_quantile` / `spread.ema_span` – optional preprocessing to clip the noisiest 1% tails and apply light exponential smoothing before the z-score detector runs.
+- `spread.abs_min` – filters out statistically significant but economically trivial spread changes (default 2¢).
+- `roll_rules.confirmation_min_signals` – require at least *N* of {spread widening, liquidity roll, open-interest migration} before flagging an event (default 1 keeps legacy behaviour).
+- `roll_rules.oi_ratio` / `roll_rules.oi_confirm_days` – configure how aggressively the open-interest signal is triggered.
+- `business_days.calendar_paths` – provide one or more calendars to enable business-day guards; leave the list empty if you want to skip calendar alignment entirely.
+
 ## Code Quality
 
 ### Recent Improvements
