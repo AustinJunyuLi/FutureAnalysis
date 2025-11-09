@@ -385,7 +385,7 @@ def _apply_cool_down(events: pd.Series, cool_down: object) -> pd.Series:
         for i, (ts, flag) in enumerate(events.items()):
             if not flag:
                 continue
-            if last_time is None or (ts - last_time) >= cool_down:
+            if last_time is None or (ts - last_time) > cool_down:
                 last_time = ts
             else:
                 filtered.iat[i] = False

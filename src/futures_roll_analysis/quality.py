@@ -19,7 +19,7 @@ class QualityConfig:
     max_gap_days: int = 30
     min_coverage_percent: float = 30.0
     trim_early_sparse: bool = True
-    commodity: str = "HG"
+    commodity: str = ""
 
 
 class DataQualityFilter:

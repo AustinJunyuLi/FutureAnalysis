@@ -140,7 +140,25 @@ def load_calendar_hierarchy(
     """Load calendars using commodity/exchange hierarchy."""
 
     if calendar_dir is None:
-        calendar_dir = Path(__file__).resolve().parents[2] / "metadata" / "calendars"
+        # Try multiple fallback locations for better robustness
+        possible_dirs = [
+            # For package installations, try relative to package root
+            Path(__file__).parent.parent.parent / "metadata" / "calendars",
+            # For editable installs, try project root
+            Path(__file__).resolve().parents[2] / "metadata" / "calendars",
+            # Try current working directory
+            Path.cwd() / "metadata" / "calendars",
+            # Try parent of current working directory
+            Path.cwd().parent / "metadata" / "calendars",
+        ]
+
+        for possible_dir in possible_dirs:
+            if possible_dir.exists():
+                calendar_dir = possible_dir
+                break
+        else:
+            # Use the original default if none exist (will likely fail but provides clear error)
+            calendar_dir = Path(__file__).resolve().parents[2] / "metadata" / "calendars"
     else:
         calendar_dir = Path(calendar_dir)
 

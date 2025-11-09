@@ -58,10 +58,18 @@ def summarize_strip_dominance(
     max_expiry = expiry_series.dropna().max()
     start_date = df["date"].min()
     end_date = max(df["date"].max(), max_expiry) if pd.notna(max_expiry) else df["date"].max()
-    open_days = _determine_open_days(calendar, start_date, end_date)
-    df["business_days_to_expiry"] = [
-        _business_days_to_expiry(date, expiry, open_days) for date, expiry in zip(df["date"], expiry_series)
-    ]
+
+    if calendar is not None:
+        open_days = _determine_open_days(calendar, start_date, end_date)
+        df["business_days_to_expiry"] = [
+            _business_days_to_expiry(date, expiry, open_days) for date, expiry in zip(df["date"], expiry_series)
+        ]
+    else:
+        # Fall back to regular calendar days when no trading calendar is provided
+        df["business_days_to_expiry"] = [
+            (expiry - date).days if pd.notna(expiry) else None
+            for date, expiry in zip(df["date"], expiry_series)
+        ]
 
     grouped = df.groupby(["front_contract", "date"]).agg(
         s1_change=("s1_change", "median"),

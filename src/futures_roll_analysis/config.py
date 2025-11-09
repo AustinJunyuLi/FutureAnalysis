@@ -148,19 +148,16 @@ def _validate_settings(products: Iterable[str], data_cfg: Dict[str, Any], spread
         raise ValueError("spread.method must be one of: zscore, abs, combined")
     # No noise-reduction features (winsorization) in this iteration
 
-    # Strict calendar requirement: calendar_paths must exist and be valid
+    # Optional calendar paths: business day logic only runs if calendars provided
     calendar_paths = business_days_cfg.get("calendar_paths", [])
-    if not calendar_paths:
-        raise ValueError(
-            "business_days.calendar_paths is required. "
-            "Please provide a trading calendar (e.g., cme_globex_holidays.csv)"
-        )
-    for cal_path in calendar_paths:
-        if not cal_path.exists():
-            raise FileNotFoundError(
-                f"Trading calendar not found: {cal_path}\n"
-                f"Please ensure the calendar file exists before running analysis."
-            )
+    if calendar_paths:
+        # Only validate paths if calendars are provided
+        for cal_path in calendar_paths:
+            if not cal_path.exists():
+                raise FileNotFoundError(
+                    f"Trading calendar not found: {cal_path}\n"
+                    f"Please ensure the calendar file exists before running analysis."
+                )
 
     align = business_days_cfg.get("align_events", "none")
     if align not in {"none", "shift_next", "drop_closed"}:

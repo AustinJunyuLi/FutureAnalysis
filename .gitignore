@@ -85,6 +85,7 @@ Thumbs.db
 
 # Private correspondence
 emails/
+*.eml
 
 # Database files
 *.db
@@ -94,3 +95,10 @@ emails/
 # MCP config (optional - uncomment if it contains secrets)
 # .mcp.json
 .tmp/
+
+# Temporary test files
+test.png
+test_*.png
+run_figure_generation.py
+*_temp.py
+temp_*

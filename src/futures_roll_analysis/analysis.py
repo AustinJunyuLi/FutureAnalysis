@@ -133,24 +133,22 @@ def run_bucket_analysis(
     labels = panel[("meta", "bucket_label")]
     sessions = panel[("meta", "session")]
 
-    # Strict calendar requirement: fail fast if calendar loading fails
+    # Optional calendar paths: business day logic only runs if calendars provided
     calendar_paths = settings.business_days.get("calendar_paths", [])
-    if not calendar_paths:
-        raise ValueError(
-            "business_days.calendar_paths is required. "
-            "Please provide a trading calendar in settings."
-        )
-
-    try:
-        calendar = trading_days.load_calendar(
-            calendar_paths,
-            hierarchy=settings.business_days.get("calendar_hierarchy", "override"),
-        )
-    except Exception as exc:
-        raise RuntimeError(
-            f"Failed to load trading calendar from {calendar_paths}: {exc}\n"
-            "Please ensure the calendar file exists and is properly formatted."
-        ) from exc
+    calendar = None
+    if calendar_paths:
+        try:
+            calendar = trading_days.load_calendar(
+                calendar_paths,
+                hierarchy=settings.business_days.get("calendar_hierarchy", "override"),
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                f"Failed to load trading calendar from {calendar_paths}: {exc}\n"
+                "Please ensure the calendar file exists and is properly formatted."
+            ) from exc
+    else:
+        LOGGER.info("No calendar paths provided; business day alignment will be skipped")
 
     # Multi-spread analysis for supervisor's test
     LOGGER.info("Computing multi-spread analysis (F1-F12, S1-S11)...")
@@ -410,24 +408,22 @@ def run_daily_analysis(
     widening = confirm_roll_events(widening, additional_signals, min_signals=confirmation_min)
     spread_for_events = _reindex_like(spread, widening.index, tolerance=pd.Timedelta(days=1))
 
-    # Strict calendar requirement: fail fast if calendar loading fails
+    # Optional calendar paths: business day logic only runs if calendars provided
     calendar_paths = settings.business_days.get("calendar_paths", [])
-    if not calendar_paths:
-        raise ValueError(
-            "business_days.calendar_paths is required. "
-            "Please provide a trading calendar in settings."
-        )
-
-    try:
-        calendar = trading_days.load_calendar(
-            calendar_paths,
-            hierarchy=settings.business_days.get("calendar_hierarchy", "override"),
-        )
-    except Exception as exc:
-        raise RuntimeError(
-            f"Failed to load trading calendar from {calendar_paths}: {exc}\n"
-            "Please ensure the calendar file exists and is properly formatted."
-        ) from exc
+    calendar = None
+    if calendar_paths:
+        try:
+            calendar = trading_days.load_calendar(
+                calendar_paths,
+                hierarchy=settings.business_days.get("calendar_hierarchy", "override"),
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                f"Failed to load trading calendar from {calendar_paths}: {exc}\n"
+                "Please ensure the calendar file exists and is properly formatted."
+            ) from exc
+    else:
+        LOGGER.info("No calendar paths provided; business day alignment will be skipped")
 
     business_days_index = None
     business_days_audit = None
