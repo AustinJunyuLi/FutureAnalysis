@@ -1,0 +1,50 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{longtable}
+\title{S1/S2 Seasonality \& Regression Summary}
+\author{Automated Report}
+\date{\today}
+\begin{document}
+\maketitle
+\section{Overview}
+This report consolidates the following artifacts produced on \today:
+\begin{itemize}
+  \item Level and delta overlays/averages for S1 (F2$-$F1) and S2 (F3$-$F2) from 2018--2024.
+  \item Intra-month regression of the slope across the last five trading days.
+\end{itemize}
+\section{Regression Summary}
+The intra-month slope regression uses $slope_m = \alpha + \beta \cdot t_m$, where $t_m$ is the month index since Jan 2015. Latest outcome:
+\begin{center}
+\begin{tabular}{lcccccc}
+\toprule
+$\alpha$ & $\beta_{month}$ & $\beta_{year}$ & SE($\beta$) & $t$-stat & $p$-value & $R^2$ \\
+\midrule
+0.000201 & 3.25e-05 & 3.91e-04 & 8.28e-06 & 3.93 & 8.45e-05 & 0.117 \\
+\bottomrule
+\end{tabular}
+\end{center}
+Interpretation: within-month S1 slopes are positive and have strengthened modestly over time.
+\section{Seasonality Figures}
+For each flavor (level/delta) and spread (S1/S2), PNG files live under \texttt{outputs/seasonality/...}. Include representative examples below.
+\subsection{S1 Level}
+\includegraphics[width=0.48\textwidth]{../outputs/seasonality/s1_level/s1_overlay_2024.png}
+\includegraphics[width=0.48\textwidth]{../outputs/seasonality/s1_level/s1_average_2024.png}
+\subsection{S1 Delta}
+\includegraphics[width=0.48\textwidth]{../outputs/seasonality/s1_delta/s1_overlay_2024.png}
+\includegraphics[width=0.48\textwidth]{../outputs/seasonality/s1_delta/s1_average_2024.png}
+\subsection{S2 Level}
+\includegraphics[width=0.48\textwidth]{../outputs/seasonality/s2_level/s2_overlay_2024.png}
+\includegraphics[width=0.48\textwidth]{../outputs/seasonality/s2_level/s2_average_2024.png}
+\subsection{S2 Delta}
+\includegraphics[width=0.48\textwidth]{../outputs/seasonality/s2_delta/s2_overlay_2024.png}
+\includegraphics[width=0.48\textwidth]{../outputs/seasonality/s2_delta/s2_average_2024.png}
+\section{Notes}
+\begin{itemize}
+  \item Overlay CSV/PNGs exist for each year 2018--2024 in the subfolders \texttt{s1\_level}, \texttt{s1\_delta}, \texttt{s2\_level}, \texttt{s2\_delta}.
+  \item Average plots summarize mean/p25/p75 by BDOM; delta variants highlight intra-month change magnitudes.
+  \item Regression inputs live in \texttt{outputs/s1\_eom\_trend\_2015\_2024/} (\texttt{eom\_data\_long.csv}, \texttt{intra\_month\_slopes.csv}).
+\end{itemize}
+\end{document}
