@@ -453,9 +453,12 @@ def _timing_section(result: BucketAnalysisResult) -> str:
 def _daily_section(result: DailyAnalysisResult) -> str:
     sample = result.summary.head(12).copy()
     sample["date"] = pd.to_datetime(sample["date"]).dt.strftime("%Y-%m-%d")
-    sample = sample.fillna("—")
+    
+    def fmt_days(val):
+        return f"{val:.1f}" if pd.notna(val) else "—"
+
     sample_rows = "\n".join(
-        f"{row['date']} & {row.get('change', 0):.2f} & {row.get('business_days_since_last', '—')} \\\\"
+        f"{row['date']} & {row['change']:.2f} & {fmt_days(row.get('business_days_since_last'))} \\\\"
         for _, row in sample.iterrows()
     )
     table = (
