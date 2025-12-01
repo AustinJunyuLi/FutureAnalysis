@@ -38,21 +38,21 @@ def main():
         (Path("outputs/seasonality") / d).mkdir(parents=True, exist_ok=True)
 
     scripts = [
-        # S1 Level
-        ("s1_overlay.py", ["--year", "2024", "--metric", "level", "--outdir", "outputs/seasonality/s1_level"]),
-        ("s1_average_by_bdom.py", ["--year", "2024", "--metric", "level", "--outdir", "outputs/seasonality/s1_level"]),
-        
+        # S1 Level (using consolidated spread_overlay.py)
+        ("spread_overlay.py", ["--spread", "S1", "--year", "2024", "--metric", "level", "--outdir", "outputs/seasonality/s1_level"]),
+        ("spread_average_by_bdom.py", ["--spread", "S1", "--year", "2024", "--metric", "level", "--outdir", "outputs/seasonality/s1_level"]),
+
         # S1 Delta
-        ("s1_overlay.py", ["--year", "2024", "--metric", "diff", "--outdir", "outputs/seasonality/s1_delta"]),
-        ("s1_average_by_bdom.py", ["--year", "2024", "--metric", "diff", "--outdir", "outputs/seasonality/s1_delta"]),
-        
+        ("spread_overlay.py", ["--spread", "S1", "--year", "2024", "--metric", "diff", "--outdir", "outputs/seasonality/s1_delta"]),
+        ("spread_average_by_bdom.py", ["--spread", "S1", "--year", "2024", "--metric", "diff", "--outdir", "outputs/seasonality/s1_delta"]),
+
         # S2 Level
-        ("s2_overlay.py", ["--year", "2024", "--metric", "level", "--outdir", "outputs/seasonality/s2_level"]),
-        ("s2_average_by_bdom.py", ["--year", "2024", "--metric", "level", "--outdir", "outputs/seasonality/s2_level"]),
-        
+        ("spread_overlay.py", ["--spread", "S2", "--year", "2024", "--metric", "level", "--outdir", "outputs/seasonality/s2_level"]),
+        ("spread_average_by_bdom.py", ["--spread", "S2", "--year", "2024", "--metric", "level", "--outdir", "outputs/seasonality/s2_level"]),
+
         # S2 Delta
-        ("s2_overlay.py", ["--year", "2024", "--metric", "diff", "--outdir", "outputs/seasonality/s2_delta"]),
-        ("s2_average_by_bdom.py", ["--year", "2024", "--metric", "diff", "--outdir", "outputs/seasonality/s2_delta"]),
+        ("spread_overlay.py", ["--spread", "S2", "--year", "2024", "--metric", "diff", "--outdir", "outputs/seasonality/s2_delta"]),
+        ("spread_average_by_bdom.py", ["--spread", "S2", "--year", "2024", "--metric", "diff", "--outdir", "outputs/seasonality/s2_delta"]),
 
         # Regressions
         ("s1_eom_trend.py", []),

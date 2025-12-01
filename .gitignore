@@ -82,6 +82,10 @@ Thumbs.db
 *.fdb_latexmk
 *.fls
 *.synctex.gz
+*.bak
+
+# Dropbox conflict files
+*conflicted copy*
 
 # Private correspondence
 emails/

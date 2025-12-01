@@ -287,6 +287,14 @@ For detailed implementation notes and analysis methodology, see:
 - [`AGENTS.md`](AGENTS.md): Repository guidelines, architecture, and development standards
 - Reports are compiled under `presentation_docs/` via the Makefile targets described above.
 
+## Documentation
+
+Additional documentation is available in the `docs/` directory:
+
+- [`docs/CLAUDE.md`](docs/CLAUDE.md): AI agent development guidelines and workflow
+- [`docs/CODEBASE_EXPLORATION.md`](docs/CODEBASE_EXPLORATION.md): Deep technical reference and architecture
+- [`docs/research/`](docs/research/): Domain-specific research and analysis notes
+
 ## License
 
 Internal use only.
